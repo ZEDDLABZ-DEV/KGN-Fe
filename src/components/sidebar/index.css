@@ -1,0 +1,26 @@
+.accessiblity::before{
+    content: '';
+    height: 50px;
+    width: 14px;
+    background: url("/white-top-corner.png") ;
+    z-index: 999;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    position: absolute;
+    left: 0px;
+    top: -46px;
+}
+
+.accessiblity::after{
+    content: '';
+    height: 50px;
+    width: 12px;
+    overflow:hidden;
+    background-image: url("/white-bottom-corner.png");
+    z-index: 999;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    position: absolute;
+    left: 0px;
+    bottom: -48px;
+}
