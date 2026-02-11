@@ -44,6 +44,7 @@ const Sidebar = () => {
     { name: 'File Manager', icon: <HiOutlineFolderOpen size={20} />, path: '/file-manager', permission: 'view_projects' },
     { name: 'Purchase Orders', icon: <LuClipboardList size={20} />, path: '/purchase-orders', permission: 'view_projects' },
     { name: "GRN", icon: <HiOutlineDocumentText size={20} />, path: '/grn', permission: ['view_projects', 'view_purchase_orders'] },
+    { name: 'Inventory', icon: <LuClipboardList size={20} />, path: '/inventory', permission: 'view_projects' },
     { name: 'Roles & Permissions', icon: <GiRobotLeg size={20} />, path: '/roles-permissions', permission: 'manage_roles' },
     { name: 'Settings', icon: <GrSettingsOption size={20} />, path: '/settings' },
     { name: 'Logout', icon: <CgLogOut size={20} />, onClick: logout, path: '/logout' },

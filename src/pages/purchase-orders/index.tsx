@@ -116,6 +116,14 @@ interface Project {
   description?: string
 }
 
+interface Vendor {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  address?: string
+}
+
 interface MaterialRequest {
   id: string
   title: string
@@ -151,6 +159,7 @@ const PurchaseOrders = () => {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [vendors, setVendors] = useState<Vendor[]>([])
   const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([])
 
   // GRN
@@ -415,6 +424,18 @@ const PurchaseOrders = () => {
     }
   }
 
+  const getVendors = async () => {
+    try {
+      const response: any = await Request.get("/v1/api/vendors")
+      console.log("Vendors API response:", response)
+      const vendorList = response?.data || response || []
+      console.log("Parsed vendor list:", vendorList)
+      setVendors(Array.isArray(vendorList) ? vendorList : [])
+    } catch (error) {
+      console.log("Failed to load vendors:", error)
+    }
+  }
+
   const getMaterialRequests = async (projectId: string) => {
     try {
       const response = await Request.get(`/v1/api/material-requests?projectId=${projectId}`)
@@ -476,9 +497,6 @@ const PurchaseOrders = () => {
     setEditingPO(po)
     editForm.setFieldsValue({
       vendorName: po.vendorName,
-      vendorContact: po.vendorContact,
-      vendorEmail: po.vendorEmail,
-      vendorAddress: po.vendorAddress,
       notes: po.notes,
       status: po.status,
       expectedDelivery: po.expectedDelivery ? moment(po.expectedDelivery) : null,
@@ -620,6 +638,7 @@ const PurchaseOrders = () => {
 
   useEffect(() => {
     getProjects()
+    getVendors()
   }, [])
 
   // Filter POs
@@ -1163,27 +1182,21 @@ const PurchaseOrders = () => {
               Vendor Information
             </h4>
             <div className="grid grid-cols-2 gap-4">
-              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please enter vendor name" }]}>
-              <Select
-              placeholder="Select a Vendor Name"
-              // options={materialRequests.map((mr) => ({ label: mr.title, value: mr.id }))}
-              // onChange={handleMaterialRequestChange}
-              allowClear
-            />
-              </Form.Item>
-              <Form.Item label="Contact Number" name="vendorContact">
-                <Input placeholder="Enter contact number" prefix={<FiPhone className="text-gray-400" size={14} />} />
-              </Form.Item>
-              <Form.Item label="Email" name="vendorEmail">
-                <Input placeholder="Enter email address" prefix={<FiMail className="text-gray-400" size={14} />} />
+              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please select vendor name" }]}>
+                <Select
+                  placeholder="Select a Vendor Name"
+                  options={vendors.map((vendor) => ({ label: vendor.name, value: vendor.name }))}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                  }
+                  allowClear
+                />
               </Form.Item>
               <Form.Item label="Expected Delivery" name="expectedDelivery">
                 <DatePicker className="w-full" placeholder="Select expected delivery date" />
               </Form.Item>
             </div>
-            <Form.Item label="Address" name="vendorAddress" className="mb-0">
-              <Input.TextArea rows={2} placeholder="Enter vendor address" />
-            </Form.Item>
           </div>
 
           {renderItemsForm(formItems, handleItemChange, handleAddItem, handleRemoveItem)}
@@ -1231,15 +1244,17 @@ const PurchaseOrders = () => {
               <FiUser size={16} />
               Vendor Information
             </h4>
-            <div className="grid grid-cols-2 gap-4">
-              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please enter vendor name" }]}>
-                <Input placeholder="Enter vendor name" prefix={<FiUser className="text-gray-400" size={14} />} />
-              </Form.Item>
-              <Form.Item label="Contact Number" name="vendorContact">
-                <Input placeholder="Enter contact number" prefix={<FiPhone className="text-gray-400" size={14} />} />
-              </Form.Item>
-              <Form.Item label="Email" name="vendorEmail">
-                <Input placeholder="Enter email address" prefix={<FiMail className="text-gray-400" size={14} />} />
+            <div className="grid grid-cols-3 gap-4">
+              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please select vendor name" }]}>
+                <Select
+                  placeholder="Select a Vendor Name"
+                  options={vendors.map((vendor) => ({ label: vendor.name, value: vendor.name }))}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                  }
+                  allowClear
+                />
               </Form.Item>
               <Form.Item label="Expected Delivery" name="expectedDelivery">
                 <DatePicker className="w-full" placeholder="Select expected delivery date" />
@@ -1253,9 +1268,6 @@ const PurchaseOrders = () => {
                 />
               </Form.Item>
             </div>
-            <Form.Item label="Address" name="vendorAddress" className="mb-0">
-              <Input.TextArea rows={2} placeholder="Enter vendor address" />
-            </Form.Item>
           </div>
 
           {renderItemsForm(editFormItems, handleEditItemChange, handleEditAddItem, handleEditRemoveItem)}
