@@ -16,6 +16,8 @@ import { PurchaseOrders } from './pages/purchase-orders';
 import { GRN } from './pages/grn';
 import {Vendors} from './pages/vendors';
 import { Inventory } from './pages/inventory';
+import { Procurement } from './pages/procurement';
+import { Settings } from './pages/settings';
 // import { TodoList } from './pages/todolist/index.tsx';
 // import { Instagram } from './pages/instagram/index.tsx';
 
@@ -39,6 +41,8 @@ function App() {
           <Route path="/purchase-orders" element={<PurchaseOrders />} />
           <Route path="/grn" element={<GRN />} />
           <Route path="/inventory" element={<Inventory />} />
+          <Route path="/procurement" element={<Procurement />} />
+          <Route path="/settings" element={<Settings />} />
           {/* <Route path="/list" element={<TodoList />} /> */}
           {/* <Route path="/instagram" element={<Instagram />} /> */}
         </Routes>
