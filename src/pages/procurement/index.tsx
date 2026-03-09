@@ -3,15 +3,13 @@
 import { useEffect, useState } from 'react';
 import { ParentLayout } from '../../layout/ParentLayout';
 import { Request } from '../../utils/Request';
-import { Skeleton, Empty } from 'antd';
+import { Skeleton } from 'antd';
 import toast from 'react-hot-toast';
 import {
   FiPackage,
   FiShoppingCart,
   FiFileText,
-  FiCheckCircle,
   FiClock,
-  FiAlertCircle,
   FiTrendingUp,
   FiArrowRight,
 } from 'react-icons/fi';
