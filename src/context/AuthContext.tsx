@@ -3,7 +3,7 @@
 
 import { createContext, useEffect, useState, type ReactNode } from "react";
 import { Request } from "../utils/Request";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { message } from "antd";
 
  const AuthContext:any = createContext(undefined);
@@ -14,6 +14,10 @@ export const AuthProvider = ({children}: {children: ReactNode}) => {
     const [permissions, setPermissions] = useState<any[]>([]);
     const [messageApi, contextHolder] = message.useMessage();
     const navigate:any = useNavigate();
+    const location = useLocation();
+
+    // List of public routes that don't require authentication
+    const publicRoutes = ['/login', '/privacy-policy', '/account-deletion', '/data-safety'];
 
     const getUser = async() => {
         try {
@@ -39,8 +43,11 @@ export const AuthProvider = ({children}: {children: ReactNode}) => {
     }
 
     useEffect(() => {
-      getUser()
-    }, [])
+      // Skip authentication check for public routes
+      if (!publicRoutes.includes(location.pathname)) {
+        getUser()
+      }
+    }, [location.pathname])
 
     return (
         <AuthContext.Provider value={{ user, permissions, setPermissions, messageApi, logout, isAuthenticated: !!user, activeMenuKey, setActiveMenuKey, getUser }}>

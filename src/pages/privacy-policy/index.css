@@ -1,0 +1,27 @@
+.privacy-policy-page {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.privacy-policy-page h1,
+.privacy-policy-page h2,
+.privacy-policy-page h3,
+.privacy-policy-page h4 {
+  color: #111827;
+}
+
+.privacy-policy-page ul {
+  line-height: 1.8;
+}
+
+.privacy-policy-page section {
+  padding-top: 1rem;
+}
+
+.privacy-policy-page section:not(:last-child) {
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 2rem;
+}

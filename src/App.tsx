@@ -18,6 +18,9 @@ import {Vendors} from './pages/vendors';
 import { Inventory } from './pages/inventory';
 import { Procurement } from './pages/procurement';
 import { Settings } from './pages/settings';
+import { PrivacyPolicy } from './pages/privacy-policy';
+import { AccountDeletion } from './pages/account-deletion';
+import { DataSafety } from './pages/data-safety';
 // import { TodoList } from './pages/todolist/index.tsx';
 // import { Instagram } from './pages/instagram/index.tsx';
 
@@ -26,7 +29,13 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          {/* Public Routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/account-deletion" element={<AccountDeletion />} />
+          <Route path="/data-safety" element={<DataSafety />} />
+          
+          {/* Protected Routes */}
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/teams" element={<Teams />} />

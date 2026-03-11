@@ -1,0 +1,21 @@
+.account-deletion-page {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.account-deletion-page h1,
+.account-deletion-page h2 {
+  color: #111827;
+}
+
+.account-deletion-page section {
+  padding-top: 1rem;
+}
+
+.account-deletion-page section:not(:last-child) {
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 2rem;
+}
