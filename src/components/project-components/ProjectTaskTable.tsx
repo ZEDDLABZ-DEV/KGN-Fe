@@ -62,16 +62,20 @@ export const ProjectTaskTable = ({
       title: "Assigned To",
       key: "assignedTo",
       width: "18%",
-      render: (item: any) => (
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100">
-            <FiUser size={14} className="text-gray-500" />
+      render: (item: any) => {
+        const assignees = item?.assignedTo
+        const label = Array.isArray(assignees)
+          ? assignees.map((a: { name?: string }) => a?.name).filter(Boolean).join(", ") || "Unassigned"
+          : assignees?.name || "Unassigned"
+        return (
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100">
+              <FiUser size={14} className="text-gray-500" />
+            </div>
+            <span className="text-sm text-gray-700">{label}</span>
           </div>
-          <span className="text-sm text-gray-700">
-            {item?.assignedTo?.name || "Unassigned"}
-          </span>
-        </div>
-      ),
+        )
+      },
     },
     {
       title: "Status",

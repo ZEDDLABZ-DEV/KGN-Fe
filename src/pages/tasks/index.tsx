@@ -73,7 +73,8 @@ interface Task {
   dueDate?: string
   createdAt?: string
   project?: { id: string; name: string }
-  assignedTo?: { id: string; name: string; email?: string }
+  /** Team members (labours) assigned to this task */
+  assignedTo?: { id: string; name: string; email?: string }[]
 }
 
 interface Project {
@@ -126,6 +127,12 @@ const Tasks = () => {
     form.resetFields()
   }
 
+  const normalizeAssignedToIds = (raw: unknown): string[] => {
+    if (Array.isArray(raw)) return [...new Set(raw.map(String).filter(Boolean))]
+    if (raw != null && raw !== "") return [String(raw)]
+    return []
+  }
+
   const handleCreateTask = async (values: any) => {
     try {
       if (!permissions.find((p: any) => p.name === "create_tasks")) return
@@ -133,11 +140,19 @@ const Tasks = () => {
         toast.error("Please select a project first")
         return
       }
+      const assignedToIds = normalizeAssignedToIds(values.assignedToIds)
+      if (assignedToIds.length === 0) {
+        toast.error("Select at least one team member")
+        return
+      }
       setCreateLoading(true)
       await Request.post("/v1/api/tasks", {
-        ...values,
+        name: values.name,
+        description: values.description ?? "",
         projectId: selectedProject.id,
         dueDate: values.dueDate?.toISOString(),
+        priority: values.priority,
+        assignedToIds,
       })
       await getTasksByProject(selectedProject.id)
       handleCloseCreateModal()
@@ -233,12 +248,12 @@ const Tasks = () => {
     if (!assigningTask) return
     setAssignLoading(true)
     try {
-      await Request.put(`/v1/api/tasks/${assigningTask.id}`, { assignedToId: userId })
+      await Request.put(`/v1/api/tasks/${assigningTask.id}`, { assignedToIds: [userId] })
       const assignedUser = teamMembers.find((u) => u.id === userId)
       setTasks((prev) =>
         prev.map((t) =>
           t.id === assigningTask.id
-            ? { ...t, assignedTo: assignedUser ? { id: userId, name: assignedUser.name } : undefined }
+            ? { ...t, assignedTo: assignedUser ? [{ id: userId, name: assignedUser.name }] : [] }
             : t
         )
       )
@@ -273,7 +288,7 @@ const Tasks = () => {
       status: task.status,
       priority: task.priority,
       dueDate: task.dueDate ? moment(task.dueDate) : null,
-      assignedToId: task.assignedTo?.id,
+      assignedToIds: (task.assignedTo ?? []).map((a) => a.id),
     })
     setEditModalOpen(true)
     setActionMenuTask(null)
@@ -288,11 +303,21 @@ const Tasks = () => {
   const handleEditTask = async (values: any) => {
     if (!editingTask) return
     try {
+      const ids = normalizeAssignedToIds(values.assignedToIds)
       await Request.put(`/v1/api/tasks/${editingTask.id}`, {
-        ...values,
+        name: values.name,
+        description: values.description,
+        status: values.status,
+        priority: values.priority,
         dueDate: values.dueDate?.toISOString(),
+        assignedToIds: ids,
       })
-      const assignedUser = teamMembers.find((u) => u.id === values.assignedToId)
+      const nextAssigned = ids
+        .map((id) => {
+          const u = teamMembers.find((m) => m.id === id)
+          return u ? { id: u.id, name: u.name } : null
+        })
+        .filter(Boolean) as { id: string; name: string }[]
       setTasks((prev) =>
         prev.map((t) =>
           t.id === editingTask.id
@@ -300,7 +325,7 @@ const Tasks = () => {
                 ...t,
                 ...values,
                 dueDate: values.dueDate?.toISOString(),
-                assignedTo: assignedUser ? { id: values.assignedToId, name: assignedUser.name } : t.assignedTo,
+                assignedTo: nextAssigned,
               }
             : t
         )
@@ -321,11 +346,14 @@ const Tasks = () => {
 
   // Filter tasks
   const filteredTasks = tasks.filter((task) => {
+    const assigneeMatch = (task.assignedTo ?? []).some((a) =>
+      a.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
     const matchesSearch =
       !searchTerm ||
       task.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       task.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.assignedTo?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      assigneeMatch
 
     const matchesStatus = !statusFilter || task.status?.toUpperCase() === statusFilter
     const matchesPriority = !priorityFilter || task.priority?.toUpperCase() === priorityFilter
@@ -699,13 +727,20 @@ const Tasks = () => {
 
                           {/* Task Meta Info */}
                           <div className="mt-4 flex flex-wrap items-center gap-3">
-                            {/* Assignee */}
-                            {task.assignedTo ? (
-                              <div className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-1.5">
-                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500 text-xs font-semibold text-white">
-                                  {task.assignedTo.name?.slice(0, 1)?.toUpperCase()}
-                                </div>
-                                <span className="text-sm font-medium text-gray-700">{task.assignedTo.name}</span>
+                            {/* Assignees */}
+                            {(task.assignedTo?.length ?? 0) > 0 ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {(task.assignedTo ?? []).map((a) => (
+                                  <div
+                                    key={a.id}
+                                    className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-1.5"
+                                  >
+                                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500 text-xs font-semibold text-white">
+                                      {a.name?.slice(0, 1)?.toUpperCase()}
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-700">{a.name}</span>
+                                  </div>
+                                ))}
                               </div>
                             ) : (
                               <button
@@ -808,15 +843,24 @@ const Tasks = () => {
             <Input placeholder="Enter task name" />
           </Form.Item>
 
-          <Form.Item label="Assigned To" name="assignedToId">
+          <Form.Item
+            label="Assigned To"
+            name="assignedToIds"
+            rules={[
+              { required: true, message: "Select at least one team member" },
+              { type: "array", min: 1, message: "Select at least one team member" },
+            ]}
+          >
             <Select
-              placeholder="Select team member"
+              mode="multiple"
+              placeholder="Select team members"
               options={teamMembers.map((u) => ({ label: u.name, value: u.id }))}
               loading={teamMembersLoading}
               disabled={teamMembersLoading || teamMembers.length === 0}
               showSearch
+              optionFilterProp="label"
+              maxTagCount="responsive"
               filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
-              allowClear
             />
           </Form.Item>
 
@@ -829,7 +873,11 @@ const Tasks = () => {
             </Form.Item>
           </div>
 
-          <Form.Item label="Description" name="description">
+          <Form.Item
+            label="Description"
+            name="description"
+            rules={[{ required: true, message: "Please enter a description" }]}
+          >
             <Input.TextArea rows={3} placeholder="Enter task description" />
           </Form.Item>
 
@@ -861,9 +909,10 @@ const Tasks = () => {
             <Input placeholder="Enter task name" />
           </Form.Item>
 
-          <Form.Item label="Assigned To" name="assignedToId">
+          <Form.Item label="Assigned To" name="assignedToIds">
             <Select
-              placeholder="Select team member"
+              mode="multiple"
+              placeholder="Select team members"
               options={teamMembers.map((u) => ({ label: u.name, value: u.id }))}
               loading={teamMembersLoading}
               showSearch
@@ -951,7 +1000,7 @@ const Tasks = () => {
                     <p className="text-sm font-medium text-gray-900">{member.name}</p>
                     {member.email && <p className="text-xs text-gray-500">{member.email}</p>}
                   </div>
-                  {assigningTask?.assignedTo?.id === member.id && (
+                  {assigningTask?.assignedTo?.some((a) => a.id === member.id) && (
                     <span className="ml-auto rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">Current</span>
                   )}
                 </button>
