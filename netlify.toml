@@ -2,6 +2,9 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  VITE_USE_PROXY = "true"
+
 # Proxy API requests to EC2 (avoids mixed-content & browser CORS issues)
 [[redirects]]
   from = "/v1/*"

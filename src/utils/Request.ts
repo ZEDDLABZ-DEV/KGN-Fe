@@ -1,7 +1,14 @@
 import axios from "axios";
 
+// When VITE_USE_PROXY=true (Netlify), requests stay on the same origin
+// and netlify.toml proxies /v1/* to the EC2 backend.
+const baseURL =
+  import.meta.env.VITE_USE_PROXY === "true"
+    ? ""
+    : import.meta.env.VITE_BASE_URL;
+
 const Request = axios.create({
-  baseURL: import.meta.env.VITE_BASE_URL,
+  baseURL,
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",
