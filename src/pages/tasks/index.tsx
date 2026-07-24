@@ -9,11 +9,14 @@ import {
   DatePicker,
   Select,
   Skeleton,
-  Empty
+  Empty,
+  Upload
 } from "antd"
+import type { UploadFile } from "antd"
 import { toast } from "react-hot-toast"
 import { ParentLayout } from "../../layout/ParentLayout"
 import { Request } from "../../utils/Request"
+import { isAdminRole, getProjectsEndpoint } from "../../utils/projects"
 import { AuthContext } from "../../context/AuthContext"
 import moment from "moment"
 import {
@@ -30,6 +33,7 @@ import {
   FiUserPlus,
   FiMapPin,
   FiUsers,
+  FiFileText,
 } from "react-icons/fi"
 import { GoTasklist } from "react-icons/go"
 import { BiRupee } from "react-icons/bi"
@@ -72,6 +76,7 @@ interface Task {
   priority?: string
   dueDate?: string
   createdAt?: string
+  updates?: string[]
   project?: { id: string; name: string }
   /** Team members (labours) assigned to this task */
   assignedTo?: { id: string; name: string; email?: string }[]
@@ -96,7 +101,8 @@ interface Project {
 const Tasks = () => {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(false)
-  const { permissions = [] } = useContext(AuthContext) as any
+  const { permissions = [], user } = useContext(AuthContext) as any
+  const isAdmin = isAdminRole(user)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [form] = Form.useForm()
@@ -121,6 +127,27 @@ const Tasks = () => {
   const [assignModalOpen, setAssignModalOpen] = useState(false)
   const [assigningTask, setAssigningTask] = useState<Task | null>(null)
   const [assignLoading, setAssignLoading] = useState(false)
+
+  // Complete task modal
+  const [completeModalOpen, setCompleteModalOpen] = useState(false)
+  const [completingTask, setCompletingTask] = useState<Task | null>(null)
+  const [completeLoading, setCompleteLoading] = useState(false)
+  const [completeForm] = Form.useForm()
+
+  // Daily report modal
+  const [dailyReportModalOpen, setDailyReportModalOpen] = useState(false)
+  const [reportingTask, setReportingTask] = useState<Task | null>(null)
+  const [dailyReportLoading, setDailyReportLoading] = useState(false)
+  const [dailyReportForm] = Form.useForm()
+
+  const formatDailyReportEntry = (date: moment.Moment, description: string) =>
+    `[${date.format("MMM DD, YYYY")}] ${description.trim()}`
+
+  const resolveTaskUpdates = (response: any, task: Task, newEntry: string): string[] => {
+    if (Array.isArray(response?.data?.updates)) return response.data.updates
+    if (Array.isArray(response?.updates)) return response.updates
+    return [...(Array.isArray(task.updates) ? task.updates : []), newEntry]
+  }
 
   const handleCloseCreateModal = () => {
     setCreateModalOpen(false)
@@ -166,9 +193,10 @@ const Tasks = () => {
   }
 
   const getProjects = async () => {
+    if (!user) return
     setProjectsLoading(true)
     try {
-      const response = await Request.get("/v1/api/projects/all")
+      const response = await Request.get(getProjectsEndpoint(user))
       setProjects(response.data || [])
     } catch (error) {
       console.log(error)
@@ -231,6 +259,118 @@ const Tasks = () => {
       console.log(error)
       toast.error("Failed to update status")
     }
+  }
+
+  const openCompleteModal = (task: Task) => {
+    setCompletingTask(task)
+    completeForm.resetFields()
+    setCompleteModalOpen(true)
+  }
+
+  const handleCloseCompleteModal = () => {
+    setCompleteModalOpen(false)
+    setCompletingTask(null)
+    completeForm.resetFields()
+  }
+
+  const handleCompleteTask = async (values: { updates: string }) => {
+    if (!completingTask) return
+    setCompleteLoading(true)
+    try {
+      const response: any = await Request.put(`/v1/api/tasks/${completingTask.id}`, {
+        status: "COMPLETED",
+        updates: values.updates,
+      })
+      const responseUpdates = resolveTaskUpdates(response, completingTask, values.updates)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === completingTask.id
+            ? { ...t, status: "COMPLETED", updates: responseUpdates }
+            : t
+        )
+      )
+      toast.success("Task completed")
+      handleCloseCompleteModal()
+    } catch (error) {
+      console.log(error)
+      toast.error(
+        (error as any)?.response?.data?.message || "Failed to complete task"
+      )
+    } finally {
+      setCompleteLoading(false)
+    }
+  }
+
+  const openDailyReportModal = (task: Task) => {
+    setReportingTask(task)
+    dailyReportForm.setFieldsValue({
+      reportDate: moment(),
+      progressUpdate: "",
+      images: [],
+    })
+    setDailyReportModalOpen(true)
+  }
+
+  const handleCloseDailyReportModal = () => {
+    setDailyReportModalOpen(false)
+    setReportingTask(null)
+    dailyReportForm.resetFields()
+  }
+
+  const handleSubmitDailyReport = async (values: {
+    reportDate: moment.Moment
+    progressUpdate: string
+    images?: UploadFile[]
+  }) => {
+    if (!reportingTask) return
+    setDailyReportLoading(true)
+    try {
+      const reportDate = values.reportDate.format("YYYY-MM-DD")
+      const progressUpdate = values.progressUpdate.trim()
+      const entry = formatDailyReportEntry(values.reportDate, progressUpdate)
+      const imageFiles = (values.images ?? [])
+        .map((file) => file.originFileObj)
+        .filter(Boolean) as File[]
+
+      const formData = new FormData()
+      formData.append("reportDate", reportDate)
+      formData.append("progressUpdate", progressUpdate)
+      imageFiles.forEach((file) => formData.append("images", file))
+
+      const response: any = await Request.post(
+        `/v1/api/tasks/${reportingTask.id}/updates`,
+        formData
+      )
+      const responseUpdates = resolveTaskUpdates(response, reportingTask, entry)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === reportingTask.id ? { ...t, updates: responseUpdates } : t
+        )
+      )
+      toast.success("Daily report saved")
+      handleCloseDailyReportModal()
+    } catch (error) {
+      console.log(error)
+      toast.error(
+        (error as any)?.response?.data?.message || "Failed to save daily report"
+      )
+    } finally {
+      setDailyReportLoading(false)
+    }
+  }
+
+  const handleTaskStatusChange = (task: Task, status: string) => {
+    const isCurrentlyCompleted = task.status?.toUpperCase() === "COMPLETED"
+    const isNotStarted = task.status?.toUpperCase() === "NOTSTARTED"
+    if (status === "COMPLETED" && !isCurrentlyCompleted) {
+      if (isNotStarted) {
+        toast.error("Move task to In Progress before completing")
+        return
+      }
+      openCompleteModal(task)
+      return
+    }
+    handleUpdateTaskStatus(task.id, status)
   }
 
   const handleUpdateTaskPriority = async (taskId: string, priority: string) => {
@@ -342,7 +482,7 @@ const Tasks = () => {
 
   useEffect(() => {
     getProjects()
-  }, [])
+  }, [user])
 
   // Filter tasks
   const filteredTasks = tasks.filter((task) => {
@@ -518,10 +658,12 @@ const Tasks = () => {
                   <FiUser size={14} className="text-gray-400" />
                   {selectedProject.manager?.name || "No manager"}
                 </span>
-                <span className="flex items-center gap-1.5 text-sm text-gray-600">
-                  <BiRupee size={14} className="text-gray-400" />
-                  {formatCurrency(selectedProject.budget)}
-                </span>
+                {isAdmin && (
+                  <span className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <BiRupee size={14} className="text-gray-400" />
+                    {formatCurrency(selectedProject.budget)}
+                  </span>
+                )}
                 <span className="flex items-center gap-1.5 text-sm text-gray-600">
                   <FiMapPin size={14} className="text-gray-400" />
                   {selectedProject.location || "No location"}
@@ -643,6 +785,8 @@ const Tasks = () => {
                   const priorityConfig = task.priority ? PRIORITY_CONFIG[task.priority?.toUpperCase()] : null
                   const taskOverdue = task.status?.toUpperCase() !== "COMPLETED" && isOverdue(task.dueDate)
                   const isCompleted = task.status?.toUpperCase() === "COMPLETED"
+                  const isNotStarted = task.status?.toUpperCase() === "NOTSTARTED"
+                  const canComplete = !isCompleted && !isNotStarted
 
                   return (
                     <div
@@ -655,11 +799,18 @@ const Tasks = () => {
                       <div className="flex items-start gap-4 p-4">
                         {/* Status Checkbox */}
                         <button
-                          onClick={() => handleUpdateTaskStatus(task.id, isCompleted ? "NOTSTARTED" : "COMPLETED")}
+                          onClick={() =>
+                            isCompleted
+                              ? handleUpdateTaskStatus(task.id, "NOTSTARTED")
+                              : canComplete && openCompleteModal(task)
+                          }
+                          disabled={!isCompleted && !canComplete}
                           className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             isCompleted
                               ? "border-emerald-500 bg-emerald-500 text-white"
-                              : "border-gray-300 hover:border-emerald-400 hover:bg-emerald-50"
+                              : canComplete
+                                ? "border-gray-300 hover:border-emerald-400 hover:bg-emerald-50"
+                                : "cursor-not-allowed border-gray-200 bg-gray-50 opacity-50"
                           }`}
                         >
                           {isCompleted && <FiCheckCircle size={14} />}
@@ -676,6 +827,18 @@ const Tasks = () => {
                                 <p className={`mt-1 text-sm leading-relaxed ${isCompleted ? "text-gray-400" : "text-gray-600"}`}>
                                   {task.description}
                                 </p>
+                              )}
+                              {Array.isArray(task.updates) && task.updates.length > 0 && (
+                                <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+                                  <p className="text-xs font-semibold text-emerald-800">Progress records</p>
+                                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                                    {task.updates.map((update, index) => (
+                                      <li key={`${update}-${index}`} className="text-sm text-emerald-700">
+                                        {update}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
                               )}
                             </div>
 
@@ -772,7 +935,7 @@ const Tasks = () => {
                             <span className={`ml-2 h-2.5 w-2.5 rounded-full ${statusConfig.dotColor}`} />
                             <Select
                               value={task.status}
-                              onChange={(value) => handleUpdateTaskStatus(task.id, value)}
+                              onChange={(value) => handleTaskStatusChange(task, value)}
                               size="small"
                               variant="borderless"
                               className="task-status-select"
@@ -818,13 +981,28 @@ const Tasks = () => {
 
                         {/* Quick Complete Button */}
                         {!isCompleted && (
-                          <button
-                            onClick={() => handleUpdateTaskStatus(task.id, "COMPLETED")}
-                            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
-                          >
-                            <FiCheckCircle size={14} />
-                            Complete
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openDailyReportModal(task)}
+                              className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                            >
+                              <FiFileText size={14} />
+                              Daily report
+                            </button>
+                            <button
+                              onClick={() => canComplete && openCompleteModal(task)}
+                              disabled={!canComplete}
+                              title={isNotStarted ? "Move task to In Progress before completing" : undefined}
+                              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                                canComplete
+                                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                  : "cursor-not-allowed bg-gray-200 text-gray-400"
+                              }`}
+                            >
+                              <FiCheckCircle size={14} />
+                              Complete
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -952,6 +1130,136 @@ const Tasks = () => {
             </button>
             <button type="submit" className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800">
               Save Changes
+            </button>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* Daily Report Modal */}
+      <Modal
+        title="Daily Report"
+        open={dailyReportModalOpen}
+        onCancel={handleCloseDailyReportModal}
+        footer={null}
+        width={520}
+      >
+        {reportingTask && (
+          <div className="mb-4 rounded-lg bg-gray-50 p-3">
+            <p className="text-sm font-medium text-gray-900">{reportingTask.name}</p>
+            {reportingTask.description && (
+              <p className="mt-1 text-xs text-gray-500 line-clamp-2">{reportingTask.description}</p>
+            )}
+          </div>
+        )}
+        <Form
+          form={dailyReportForm}
+          layout="vertical"
+          onFinish={handleSubmitDailyReport}
+          className="mt-2"
+        >
+          <Form.Item
+            label="Report Date"
+            name="reportDate"
+            rules={[{ required: true, message: "Please select a date" }]}
+          >
+            <DatePicker className="w-full" format="DD/MM/YYYY" />
+          </Form.Item>
+
+          <Form.Item
+            label="Progress update"
+            name="progressUpdate"
+            rules={[{ required: true, message: "Please describe today's progress" }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder="Describe the work done, progress made, or any notes for this day..."
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Images (optional)"
+            name="images"
+            valuePropName="fileList"
+            getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+            extra="Up to 10 images"
+          >
+            <Upload
+              listType="picture-card"
+              accept="image/*"
+              multiple
+              maxCount={10}
+              beforeUpload={() => false}
+            >
+              <div className="flex flex-col items-center gap-1 text-gray-500">
+                <FiPlus size={18} />
+                <span className="text-xs">Add image</span>
+              </div>
+            </Upload>
+          </Form.Item>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleCloseDailyReportModal}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={dailyReportLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            >
+              <FiFileText size={16} />
+              {dailyReportLoading ? "Saving..." : "Save report"}
+            </button>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* Complete Task Modal */}
+      <Modal
+        title="Complete Task"
+        open={completeModalOpen}
+        onCancel={handleCloseCompleteModal}
+        footer={null}
+        width={520}
+      >
+        {completingTask && (
+          <div className="mb-4 rounded-lg bg-gray-50 p-3">
+            <p className="text-sm font-medium text-gray-900">{completingTask.name}</p>
+            {completingTask.description && (
+              <p className="mt-1 text-xs text-gray-500 line-clamp-2">{completingTask.description}</p>
+            )}
+          </div>
+        )}
+        <Form form={completeForm} layout="vertical" onFinish={handleCompleteTask} className="mt-2">
+          <Form.Item
+            label="What has been updated?"
+            name="updates"
+            rules={[{ required: true, message: "Please describe what was updated" }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder="Describe the work completed or updates made..."
+            />
+          </Form.Item>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleCloseCompleteModal}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={completeLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <FiCheckCircle size={16} />
+              {completeLoading ? "Completing..." : "Complete"}
             </button>
           </div>
         </Form>

@@ -5,6 +5,7 @@ export interface ProjectTask {
   status: string
   dueDate: string
   priority: string
+  updates?: string[]
 }
 
 export interface Project {

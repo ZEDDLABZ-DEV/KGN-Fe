@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Skeleton, Table, Tag } from "antd"
+import { Skeleton, Table, Tag, Tooltip } from "antd"
 import type { ColumnsType } from "antd/es/table"
 import type { ProjectTask } from "../../pages/projects/types"
 import moment from "moment"
@@ -36,6 +36,12 @@ const getTaskId = (record: ProjectTask | any): string =>
   (record as any)?.task ??
   ""
 
+const normalizeUpdates = (updates: unknown): string[] => {
+  if (Array.isArray(updates)) return updates.filter(Boolean).map(String)
+  if (typeof updates === "string" && updates) return [updates]
+  return []
+}
+
 export const ProjectTaskTable = ({
   tasks,
   loading,
@@ -62,8 +68,8 @@ export const ProjectTaskTable = ({
       title: "Assigned To",
       key: "assignedTo",
       width: "18%",
-      render: (item: any) => {
-        const assignees = item?.assignedTo
+      render: (_: unknown, record: any) => {
+        const assignees = record?.assignedTo
         const label = Array.isArray(assignees)
           ? assignees.map((a: { name?: string }) => a?.name).filter(Boolean).join(", ") || "Unassigned"
           : assignees?.name || "Unassigned"
@@ -98,9 +104,9 @@ export const ProjectTaskTable = ({
       title: "Due Date",
       key: "dueDate",
       width: "15%",
-      render: (item: any) => {
-        const dueDate = item?.dueDate
-        const isOverdue = dueDate && moment(dueDate).isBefore(moment(), "day") && item?.status !== "COMPLETED"
+      render: (_: unknown, record: any) => {
+        const dueDate = record?.dueDate
+        const isOverdue = dueDate && moment(dueDate).isBefore(moment(), "day") && record?.status !== "COMPLETED"
         return (
           <div className={`flex items-center gap-2 ${isOverdue ? "text-red-600" : "text-gray-700"}`}>
             <FiCalendar size={14} className={isOverdue ? "text-red-500" : "text-gray-400"} />
@@ -115,7 +121,7 @@ export const ProjectTaskTable = ({
       title: "Priority",
       dataIndex: "priority",
       key: "priority",
-      width: "12%",
+      width: "10%",
       render: (priority: string) => {
         if (!priority) return <span className="text-sm text-gray-400">—</span>
         const config = PRIORITY_CONFIG[priority?.toUpperCase()] || { label: priority, color: "default" }
@@ -126,6 +132,40 @@ export const ProjectTaskTable = ({
           >
             {config.label}
           </Tag>
+        )
+      },
+    },
+    {
+      title: "Updates",
+      dataIndex: "updates",
+      key: "updates",
+      width: "22%",
+      render: (updates: unknown) => {
+        const normalized = normalizeUpdates(updates)
+        if (normalized.length === 0) {
+          return <span className="text-sm text-gray-400">—</span>
+        }
+
+        const preview = normalized[normalized.length - 1]
+        const content = (
+          <ul className="max-w-xs list-disc space-y-1 pl-4 text-sm text-gray-700">
+            {normalized.map((update, index) => (
+              <li key={`${update}-${index}`}>{update}</li>
+            ))}
+          </ul>
+        )
+
+        return (
+          <Tooltip title={normalized.length > 1 ? content : preview} placement="topLeft">
+            <div className="py-1">
+              <p className="line-clamp-2 text-sm text-gray-700">{preview}</p>
+              {normalized.length > 1 && (
+                <p className="mt-0.5 text-xs text-gray-400">
+                  +{normalized.length - 1} more update{normalized.length - 1 === 1 ? "" : "s"}
+                </p>
+              )}
+            </div>
+          </Tooltip>
         )
       },
     },
@@ -179,7 +219,7 @@ export const ProjectTaskTable = ({
           rowKey={(record) => getTaskId(record)}
           rowSelection={rowSelection}
           rowClassName="hover:bg-gray-50/80"
-          scroll={{ x: 700 }}
+          scroll={{ x: 900 }}
         />
       )}
 

@@ -9,6 +9,7 @@ import { GrSettingsOption, GrUserWorker } from 'react-icons/gr';
 import { GoProjectRoadmap, GoTasklist } from 'react-icons/go';
 import { GiRobotLeg, GiTeamIdea } from 'react-icons/gi';
 import { HiOutlineDocumentText } from 'react-icons/hi';
+import { FiFileText, FiUserCheck } from 'react-icons/fi';
 import { MdOutlineRequestPage } from 'react-icons/md';
 import { HiOutlineFolderOpen } from 'react-icons/hi';
 import { LuClipboardList } from 'react-icons/lu';
@@ -17,25 +18,30 @@ import { TbDashboard } from 'react-icons/tb';
 // import { FaInstagram } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
+import { isAdminRole } from '../../utils/projects';
 import './index.css';
 
 const Sidebar = () => {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
-  const { activeMenuKey, setActiveMenuKey, logout, permissions = [] } = useContext(AuthContext) as any;
+  const { activeMenuKey, setActiveMenuKey, logout, permissions = [], user } = useContext(AuthContext) as any;
   const navigate = useNavigate();
   const [allowedMenuItems, setAllowedMenuItems] = useState<any[]>([]);
+  const isAdmin = isAdminRole(user);
 
   const menuItems: Array<{
     name: string
     icon: React.ReactElement
     path: string
     permission?: string | string[]
+    adminOnly?: boolean
     onClick?: () => void
   }> = [
     { name: 'Dashboard', icon: <TbDashboard size={20} />, path: '/' },
     { name: 'Projects', icon: <GoProjectRoadmap size={20} />, path: '/projects', permission: 'view_projects' },
     { name: 'Team', icon: <GiTeamIdea size={20} />, path: '/teams', permission: 'view_teams' },
     { name: 'Tasks', icon: <GoTasklist size={20} />, path: '/tasks', permission: 'view_tasks' },
+    { name: 'Daily Reports', icon: <FiFileText size={20} />, path: '/daily-reports', adminOnly: true },
+    { name: 'Attendance', icon: <FiUserCheck size={20} />, path: '/attendance', permission: ['mark_attendance', 'view_attendance'] },
     { name: 'Users', icon: <CgUser size={20} />, path: '/users', permission: 'view_users' },
     { name: 'Workers', icon: <GrUserWorker size={20} />, path: '/workers', permission: 'view_users' },
     { name: 'Vendors', icon: <GrUserWorker size={20} />, path: '/vendors', permission: 'view_users' },
@@ -52,14 +58,15 @@ const Sidebar = () => {
 
   useEffect(() => {
     console.log(permissions, 'permissions');
-    const allowedMenuItemsData = menuItems.filter(({ permission }) => {
+    const allowedMenuItemsData = menuItems.filter(({ permission, adminOnly }) => {
+      if (adminOnly && !isAdmin) return false
       if (!permission) return true
       const required = Array.isArray(permission) ? permission : [permission]
       return required.some((perm) => permissions.find((p: any) => p.name === perm))
     });
     console.log(allowedMenuItemsData, 'allowedMenuItemsData');
     setAllowedMenuItems(allowedMenuItemsData);
-  }, [permissions])
+  }, [permissions, isAdmin])
 
   const handleClick = (path: string, name: string) => {
     navigate(path);

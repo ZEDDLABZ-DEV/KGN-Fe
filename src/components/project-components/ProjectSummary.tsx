@@ -1,11 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Progress, Tag, Tooltip } from "antd"
+import { useContext } from "react"
 import { BiRupee } from "react-icons/bi"
 import { FiCalendar, FiEye, FiEyeOff, FiMapPin, FiUser, FiUsers } from "react-icons/fi"
 import { MdOutlinePlaylistAddCheck } from "react-icons/md"
 import { TbChartArrows } from "react-icons/tb"
 import { HiOutlineBadgeCheck } from "react-icons/hi"
 import moment from "moment"
+import { AuthContext } from "../../context/AuthContext"
+import { isAdminRole } from "../../utils/projects"
 
 interface ProjectSummaryProps {
   project: any
@@ -46,6 +49,8 @@ export const ProjectSummary = ({
   onToggleTasks,
   showTasks = false,
 }: ProjectSummaryProps) => {
+  const { user } = useContext(AuthContext) as any
+  const isAdmin = isAdminRole(user)
   const status = getStatusMeta(project?.status)
   const totalTasks = project?.totalTasks ?? 0
   const completedTasks = project?.completedTasks ?? 0
@@ -86,15 +91,17 @@ export const ProjectSummary = ({
                 </dd>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <BiRupee className="mt-0.5 text-gray-400 text-xl" />
-              <div>
-                <dt className="text-xs uppercase text-gray-400">Budget</dt>
-                <dd className="text-sm font-medium text-gray-800">
-                  {formatCurrency(project?.budget)}
-                </dd>
+            {isAdmin && (
+              <div className="flex items-center gap-3">
+                <BiRupee className="mt-0.5 text-gray-400 text-xl" />
+                <div>
+                  <dt className="text-xs uppercase text-gray-400">Budget</dt>
+                  <dd className="text-sm font-medium text-gray-800">
+                    {formatCurrency(project?.budget)}
+                  </dd>
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex items-center gap-3">
               <div>
               <FiMapPin className="mt-0.5 text-gray-400 text-xl" />

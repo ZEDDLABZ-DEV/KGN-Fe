@@ -2,9 +2,11 @@
 import { Modal, Form, Select, Button, Progress, Tooltip } from "antd"
 import type { Project } from "../../pages/projects/types"
 import { ProjectTaskTable } from "./ProjectTaskTable"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useContext } from "react"
 import { Request } from "../../utils/Request"
 import { toast } from "react-hot-toast"
+import { AuthContext } from "../../context/AuthContext"
+import { isAdminRole } from "../../utils/projects"
 import {
   FiCalendar,
   FiMapPin,
@@ -64,6 +66,8 @@ export const ProjectCard = ({
   getProjects,
   viewMode = "list",
 }: ProjectCardProps) => {
+  const { user } = useContext(AuthContext) as any
+  const isAdmin = isAdminRole(user)
   const [projectState, setProjectState] = useState<any>(project)
   const [showTasks, setShowTasks] = useState<boolean>(false)
   const [tasks, setTasks] = useState<any[]>([])
@@ -184,10 +188,7 @@ export const ProjectCard = ({
     try {
       const { teamId } = await teamForm.validateFields()
       setAssignLoading(true)
-      await Request.post("/v1/api/projects/assign-team", {
-        projectId: projectState.id,
-        teamId,
-      })
+      await Request.put(`/v1/api/projects/${projectState.id}`, { teamId })
       const selectedTeam = teamOptions.find((team) => team.id === teamId)
       setProjectState((prev: any) => ({
         ...prev,
@@ -199,7 +200,9 @@ export const ProjectCard = ({
     } catch (error) {
       if ((error as any)?.errorFields) return
       console.log(error)
-      toast.error("Failed to assign team")
+      toast.error(
+        (error as any)?.response?.data?.message || "Failed to assign team"
+      )
     } finally {
       setAssignLoading(false)
     }
@@ -209,9 +212,7 @@ export const ProjectCard = ({
     if (!projectState?.team && !projectState?.teamId) return
     setUnassignLoading(true)
     try {
-      await Request.post("/v1/api/projects/unassign-team", {
-        projectId: projectState.id,
-      })
+      await Request.put(`/v1/api/projects/${projectState.id}`, { teamId: null })
       setProjectState((prev: any) => ({
         ...prev,
         team: undefined,
@@ -220,7 +221,9 @@ export const ProjectCard = ({
       toast.success("Team unassigned successfully")
     } catch (error) {
       console.log(error)
-      toast.error("Failed to unassign team")
+      toast.error(
+        (error as any)?.response?.data?.message || "Failed to unassign team"
+      )
     } finally {
       setUnassignLoading(false)
     }
@@ -461,10 +464,12 @@ export const ProjectCard = ({
                 <FiCalendar size={12} />
                 <span>{formatDate(projectState?.endDate)}</span>
               </div>
-              <div className="flex items-center gap-2 text-gray-500">
-                <BiRupee size={12} />
-                <span>{formatCurrency(projectState?.budget)}</span>
-              </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <BiRupee size={12} />
+                  <span>{formatCurrency(projectState?.budget)}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -478,6 +483,12 @@ export const ProjectCard = ({
               {showTasks ? "Hide Tasks" : "View Tasks"}
             </button>
           </div>
+
+          {showTasks && (
+            <div className="border-t border-gray-100 p-4">
+              <ProjectTaskTable tasks={tasks} loading={loading} />
+            </div>
+          )}
         </article>
 
         {/* Team Assignment Modal */}
@@ -672,11 +683,13 @@ export const ProjectCard = ({
             label="End Date"
             value={formatDate(projectState?.endDate)}
           />
-          <DataItem
-            icon={<BiRupee size={16} />}
-            label="Budget"
-            value={formatCurrency(projectState?.budget)}
-          />
+          {isAdmin && (
+            <DataItem
+              icon={<BiRupee size={16} />}
+              label="Budget"
+              value={formatCurrency(projectState?.budget)}
+            />
+          )}
           <DataItem
             icon={<FiMapPin size={16} />}
             label="Location"

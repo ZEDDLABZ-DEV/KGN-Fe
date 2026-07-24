@@ -18,6 +18,8 @@ import {Vendors} from './pages/vendors';
 import { Inventory } from './pages/inventory';
 import { Procurement } from './pages/procurement';
 import { Settings } from './pages/settings';
+import { DailyReports } from './pages/daily-reports';
+import { Attendance } from './pages/attendance';
 import { PrivacyPolicy } from './pages/privacy-policy';
 import { AccountDeletion } from './pages/account-deletion';
 import { DataSafety } from './pages/data-safety';
@@ -40,6 +42,8 @@ function App() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/tasks" element={<Tasks />} />
+          <Route path="/daily-reports" element={<DailyReports />} />
+          <Route path="/attendance" element={<Attendance />} />
           <Route path="/users" element={<Users />} />
           <Route path="/workers" element={<Workers />} />
           <Route path="/vendors" element={<Vendors />} />

@@ -19,7 +19,7 @@ interface ProjectFormValues {
   name: string;
   description: string;
   managerId: string;
-  teamId: string;
+  teamId?: string;
   status: "active" | "pending" | "completed";
   borderColor: "blue" | "orange" | "purple";
   timeline: [Dayjs, Dayjs];
@@ -61,7 +61,7 @@ export const CreateProjectModal = ({
       managerId: values.managerId,
       startDate: values.timeline[0],
       endDate: values.timeline[1],
-      teamId: values.teamId,
+      ...(values.teamId && { teamId: values.teamId }),
       budget: values.budget,
       location: values.location,
     };
@@ -151,11 +151,7 @@ export const CreateProjectModal = ({
               </Select>
             </Form.Item>
 
-            <Form.Item
-              name="teamId"
-              label="Team"
-              rules={[{ required: true, message: "Please select a team!" }]}
-            >
+            <Form.Item name="teamId" label="Team">
               <Select
                 size="large"
                 placeholder="Select team"

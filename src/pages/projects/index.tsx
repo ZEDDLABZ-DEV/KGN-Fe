@@ -5,6 +5,7 @@ import { ParentLayout } from "../../layout/ParentLayout"
 import { ProjectCard } from "../../components/project-components/ProjectCard"
 import { CreateProjectModal } from "../../components/project-components/CreateProjectModal"
 import { Request } from "../../utils/Request"
+import { getProjectsEndpoint } from "../../utils/projects"
 import { toast } from "react-hot-toast"
 import { NoContent } from "../../components/no-content"
 import { AuthContext } from "../../context/AuthContext"
@@ -28,7 +29,7 @@ const Projects = () => {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
-  const { permissions = [] } = useContext(AuthContext) as any
+  const { user, permissions = [] } = useContext(AuthContext) as any
 
   const handleCreateProject = async (e: any) => {
     try {
@@ -43,9 +44,10 @@ const Projects = () => {
   }
 
   const getProjects = async () => {
+    if (!user) return
     setLoading(true)
     try {
-      const res = await Request.get("/v1/api/projects/all")
+      const res = await Request.get(getProjectsEndpoint(user))
       setProjects(res.data || [])
     } catch (error) {
       console.log(error)
@@ -57,7 +59,7 @@ const Projects = () => {
 
   useEffect(() => {
     getProjects()
-  }, [])
+  }, [user])
 
   const filteredProjects = projects.filter((project) => {
     const matchesSearch =
