@@ -5,10 +5,10 @@
 [build.environment]
   VITE_USE_PROXY = "true"
 
-# Proxy API requests to EC2 (avoids mixed-content & browser CORS issues)
+# Proxy API requests to the Render backend (temporary test deployment)
 [[redirects]]
   from = "/v1/*"
-  to = "http://ec2-13-201-225-147.ap-south-1.compute.amazonaws.com:3000/v1/:splat"
+  to = "https://kgn-be.onrender.com/v1/:splat"
   status = 200
   force = true
 
