@@ -15,6 +15,7 @@ import { toast } from "react-hot-toast"
 import { ParentLayout } from "../../layout/ParentLayout"
 import { Request } from "../../utils/Request"
 import { AuthContext } from "../../context/AuthContext"
+import { UnitSelect } from "../../components/unit-components/UnitSelect"
 import moment from "moment"
 import {
   FiPlus,
@@ -71,21 +72,6 @@ const renderOptionWithDot = (label: string, color: string) => (
   </div>
 )
 
-const UNIT_OPTIONS = [
-  { label: "Pieces", value: "PCS" },
-  { label: "Kilograms", value: "KG" },
-  { label: "Meters", value: "M" },
-  { label: "Square Meters", value: "SQM" },
-  { label: "Cubic Meters", value: "CUM" },
-  { label: "Liters", value: "L" },
-  { label: "Bags", value: "BAGS" },
-  { label: "Tons", value: "TONS" },
-  { label: "Sets", value: "SETS" },
-  { label: "Numbers", value: "NOS" },
-  { label: "Running Meters", value: "RM" },
-  { label: "Square Feet", value: "SQFT" },
-]
-
 interface MaterialItem {
   id?: string
   itemName: string
@@ -128,7 +114,7 @@ const MaterialRequests = () => {
 
   // Items for the form
   const [formItems, setFormItems] = useState<MaterialItem[]>([
-    { itemName: "", quantity: 1, unit: "PCS", estimatedCost: 0, remarks: "" }
+    { itemName: "", quantity: 1, unit: "", estimatedCost: 0, remarks: "" }
   ])
 
   // Filters
@@ -150,11 +136,11 @@ const MaterialRequests = () => {
   const handleCloseCreateModal = () => {
     setCreateModalOpen(false)
     form.resetFields()
-    setFormItems([{ itemName: "", quantity: 1, unit: "PCS", estimatedCost: 0, remarks: "" }])
+    setFormItems([{ itemName: "", quantity: 1, unit: "", estimatedCost: 0, remarks: "" }])
   }
 
   const handleAddItem = () => {
-    setFormItems([...formItems, { itemName: "", quantity: 1, unit: "PCS", estimatedCost: 0, remarks: "" }])
+    setFormItems([...formItems, { itemName: "", quantity: 1, unit: "", estimatedCost: 0, remarks: "" }])
   }
 
   const handleRemoveItem = (index: number) => {
@@ -170,7 +156,7 @@ const MaterialRequests = () => {
   }
 
   const handleEditAddItem = () => {
-    setEditFormItems([...editFormItems, { itemName: "", quantity: 1, unit: "PCS", estimatedCost: 0, remarks: "" }])
+    setEditFormItems([...editFormItems, { itemName: "", quantity: 1, unit: "", estimatedCost: 0, remarks: "" }])
   }
 
   const handleEditRemoveItem = (index: number) => {
@@ -446,11 +432,10 @@ const MaterialRequests = () => {
                   />
                 </td>
                 <td className="px-2 py-2">
-                  <Select
+                  <UnitSelect
                     placeholder="Unit"
                     value={item.unit}
                     onChange={(val) => onChange(index, "unit", val)}
-                    options={UNIT_OPTIONS}
                     className="w-full"
                     size="small"
                   />
@@ -1056,7 +1041,7 @@ const MaterialRequests = () => {
                       <tr key={idx}>
                         <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">{item.itemName}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-center text-sm text-gray-700">{item.quantity}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-center text-sm text-gray-500">{UNIT_OPTIONS.find(u => u.value === item.unit)?.label || item.unit}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-center text-sm text-gray-500">{item.unit || "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-700">{formatCurrency(item.estimatedCost)}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(item.estimatedCost * item.quantity)}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.remarks || "—"}</td>

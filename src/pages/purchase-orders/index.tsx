@@ -1,102 +1,94 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useContext, useEffect, useState } from "react"
-import {
-  Modal,
-  Form,
-  Input,
-  Select,
-  Skeleton,
-  Empty,
-  InputNumber,
-  DatePicker,
-} from "antd"
+import { Select, Skeleton, Empty, Input, Tooltip, Modal, Form, DatePicker, Popconfirm } from "antd"
 import { toast } from "react-hot-toast"
+import moment from "moment"
+import dayjs from "dayjs"
 import { ParentLayout } from "../../layout/ParentLayout"
 import { Request } from "../../utils/Request"
 import { AuthContext } from "../../context/AuthContext"
-import moment from "moment"
+import { isAdmin, canManagePurchaseOrders, canManageGRN } from "../../utils/roles"
+import { getApiErrorMessage } from "../../utils/apiError"
+import { PO_TRANSITIONS, getTransitions } from "../../utils/workflow"
+import { StatusActionButtons, type StatusActionOption } from "../../components/status-actions/StatusActionButtons"
+import { openSendToVendorWhatsApp } from "../../utils/purchaseOrderWhatsapp"
+import { ItemsTableEditor } from "../../components/purchase-order-components/ItemsTableEditor"
+import { validateItems, type EditableItem } from "../../utils/purchaseOrderItems"
+import { canCreateGRNForPurchaseOrder } from "../../hooks/useGRN"
+import { GRNRecordModal } from "../../components/grn-components/GRNRecordModal"
 import {
   FiPlus,
+  FiChevronDown,
   FiSearch,
   FiMoreVertical,
   FiEdit2,
   FiTrash2,
-  FiChevronDown,
   FiFileText,
-  FiUser,
+  FiEye,
+  FiPrinter,
+  FiPackage,
+  FiCalendar,
   FiPhone,
+  FiClock,
+  FiUser,
   FiMail,
   FiMapPin,
-  FiCalendar,
-  FiPrinter,
-  FiEye,
-  FiPackage,
 } from "react-icons/fi"
 import { LuClipboardList } from "react-icons/lu"
 import { BiRupee } from "react-icons/bi"
 
-// Status configuration
-const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
-  DRAFT: { label: "Draft", color: "text-gray-700", bgColor: "bg-gray-100", dotColor: "#6b7280" },
-  SENT: { label: "Sent", color: "text-blue-700", bgColor: "bg-blue-50", dotColor: "#3b82f6" },
-  CONFIRMED: { label: "Confirmed", color: "text-emerald-700", bgColor: "bg-emerald-50", dotColor: "#10b981" },
-  DELIVERED: { label: "Delivered", color: "text-violet-700", bgColor: "bg-violet-50", dotColor: "#8b5cf6" },
-  CANCELLED: { label: "Cancelled", color: "text-red-700", bgColor: "bg-red-50", dotColor: "#ef4444" },
-}
-
-const STATUS_OPTIONS = [
-  { label: "Draft", value: "DRAFT", color: "#6b7280" },
-  { label: "Sent", value: "SENT", color: "#3b82f6" },
-  { label: "Confirmed", value: "CONFIRMED", color: "#10b981" },
-  { label: "Delivered", value: "DELIVERED", color: "#8b5cf6" },
-  { label: "Cancelled", value: "CANCELLED", color: "#ef4444" },
-]
-
-const renderStatusOption = (label: string, color: string) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-    <span style={{ 
-      width: 8, 
-      height: 8, 
-      borderRadius: '50%', 
-      backgroundColor: color,
-      flexShrink: 0
-    }} />
-    <span>{label}</span>
-  </div>
-)
-
-const UNIT_OPTIONS = [
-  { label: "Pieces", value: "PCS" },
-  { label: "Kilograms", value: "KG" },
-  { label: "Meters", value: "M" },
-  { label: "Square Meters", value: "SQM" },
-  { label: "Cubic Meters", value: "CUM" },
-  { label: "Liters", value: "L" },
-  { label: "Bags", value: "BAGS" },
-  { label: "Tons", value: "TONS" },
-  { label: "Sets", value: "SETS" },
-  { label: "Numbers", value: "NOS" },
-  { label: "Running Meters", value: "RM" },
-  { label: "Square Feet", value: "SQFT" },
-]
-
-interface POItem {
+export interface POItem {
   id?: string
   itemName: string
+  description?: string
   quantity: number
   unit: string
-  unitPrice: number
+  unitPrice?: number
   totalPrice?: number
   remarks?: string
 }
 
-interface PurchaseOrder {
+export interface Vendor {
+  id: string
+  name: string
+  contactPerson?: string
+  phone?: string
+  email?: string
+  address?: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface MaterialRequestItem {
+  id?: string
+  itemName: string
+  quantity: number
+  unit: string
+  estimatedCost: number
+  remarks?: string
+}
+
+export interface MaterialRequest {
+  id: string
+  title: string
+  status?: string
+  items: MaterialRequestItem[]
+  project?: { id: string; name: string }
+}
+
+export interface PurchaseOrder {
   id: string
   poNumber?: string
   materialRequestId?: string
-  materialRequest?: { id: string; title: string }
-  vendorName: string
+  materialRequest?: { id: string; title?: string; project?: { id: string; name: string } }
+  vendorId?: string
+  vendor?: Vendor
+  vendorName?: string
   vendorContact?: string
   vendorEmail?: string
   vendorAddress?: string
@@ -104,687 +96,560 @@ interface PurchaseOrder {
   expectedDelivery?: string
   status?: string
   items: POItem[]
-  project?: { id: string; name: string }
+  totalAmount?: number
   createdAt?: string
   createdBy?: { id: string; name: string }
-  totalAmount?: number
 }
 
-interface Project {
-  id: string
-  name: string
-  description?: string
+const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
+  APPROVED: { label: "Approved", color: "text-emerald-700", bgColor: "bg-emerald-50", dotColor: "#10b981" },
+  SENT: { label: "Sent", color: "text-blue-700", bgColor: "bg-blue-50", dotColor: "#3b82f6" },
+  PARTIALLY_RECEIVED: { label: "Partially Received", color: "text-orange-700", bgColor: "bg-orange-50", dotColor: "#f97316" },
+  RECEIVED: { label: "Received", color: "text-violet-700", bgColor: "bg-violet-50", dotColor: "#8b5cf6" },
+  CANCELLED: { label: "Cancelled", color: "text-red-700", bgColor: "bg-red-50", dotColor: "#ef4444" },
 }
 
-interface Vendor {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  address?: string
+const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([value, cfg]) => ({
+  label: cfg.label,
+  value,
+  color: cfg.dotColor,
+}))
+
+const renderStatusOption = (label: string, color: string) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: color, flexShrink: 0 }} />
+    <span>{label}</span>
+  </div>
+)
+
+const StatusBadge = ({ status }: { status?: string }) => {
+  const config = STATUS_CONFIG[status?.toUpperCase() || ""] || STATUS_CONFIG.APPROVED
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${config.bgColor} ${config.color}`}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: config.dotColor }} />
+      {config.label}
+    </span>
+  )
 }
 
-interface MaterialRequest {
-  id: string
-  title: string
-  items: any[]
-}
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0)
 
-interface GRNItem {
-  poItemId?: string
-  itemName: string
-  orderedQuantity: number
-  receivedQuantity: number
-  damagedQuantity: number
-  remarks?: string
-}
+const formatDate = (date?: string) => (date ? moment(date).format("MMM DD, YYYY") : "—")
 
-interface GoodsReceiptNote {
-  id?: string
-  grnNumber?: string
-  purchaseOrderId: string
-  receivedDate?: string
-  items: GRNItem[]
-  remarks?: string
-  receivedBy?: string
-}
+const getPOTotal = (po: PurchaseOrder) =>
+  po.items?.reduce((sum, item) => sum + item.quantity * (item.unitPrice || 0), 0) || 0
 
 const PurchaseOrders = () => {
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
-  const [loading, setLoading] = useState(false)
-  const { permissions = [] } = useContext(AuthContext) as any
-  const [createModalOpen, setCreateModalOpen] = useState(false)
-  const [createLoading, setCreateLoading] = useState(false)
-  const [form] = Form.useForm()
+  const { user } = useContext(AuthContext) as any
+
   const [projects, setProjects] = useState<Project[]>([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [vendors, setVendors] = useState<Vendor[]>([])
+
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [loading, setLoading] = useState(false)
+
   const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([])
-
-  // GRN
-  const [grnModalOpen, setGrnModalOpen] = useState(false)
-  const [grnLoading, setGrnLoading] = useState(false)
-  const [grnPO, setGrnPO] = useState<PurchaseOrder | null>(null)
-  const [grnItems, setGrnItems] = useState<GRNItem[]>([])
-  const [existingGRN, setExistingGRN] = useState<GoodsReceiptNote | null>(null)
-  const [grnForm] = Form.useForm()
-
-  // Items for the form
-  const [formItems, setFormItems] = useState<POItem[]>([
-    { itemName: "", quantity: 1, unit: "PCS", unitPrice: 0, remarks: "" }
-  ])
+  const [materialRequestsLoading, setMaterialRequestsLoading] = useState(false)
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("")
 
-  // Actions
+  // Card actions
   const [actionMenuPO, setActionMenuPO] = useState<string | null>(null)
-  const [editModalOpen, setEditModalOpen] = useState(false)
-  const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null)
-  const [editForm] = Form.useForm()
-  const [editFormItems, setEditFormItems] = useState<POItem[]>([])
+  const [updatingStatus, setUpdatingStatus] = useState<{ poId: string; status: string } | null>(null)
 
-  // View details
+  // Vendors (shared by Create/Edit)
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [vendorsLoading, setVendorsLoading] = useState(false)
+
+  // Create PO modal
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [createForm] = Form.useForm()
+  const [createItems, setCreateItems] = useState<EditableItem[]>([])
+
+  // Edit PO modal
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editForm] = Form.useForm()
+  const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null)
+  const [editItems, setEditItems] = useState<EditableItem[]>([])
+  const [originalEditItems, setOriginalEditItems] = useState<EditableItem[]>([])
+
+  // View PO modal
   const [viewModalOpen, setViewModalOpen] = useState(false)
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null)
 
-  const canCreateGRNForPO = (po: PurchaseOrder) => {
-    const allowedStatuses = ["SENT", "APPROVED", "PARTIALLY_RECEIVED"]
-    const status = (po.status || "").toUpperCase()
-    return allowedStatuses.includes(status)
-  }
+  // Record GRN modal
+  const [grnModalOpen, setGrnModalOpen] = useState(false)
+  const [grnModalPO, setGrnModalPO] = useState<PurchaseOrder | null>(null)
 
-  const handleCloseCreateModal = () => {
-    setCreateModalOpen(false)
-    form.resetFields()
-    setFormItems([{ itemName: "", quantity: 1, unit: "PCS", unitPrice: 0, remarks: "" }])
-  }
+  const isPOManager = canManagePurchaseOrders(user) || isAdmin(user)
+  const canRecordGRN = canManageGRN(user)
 
-  const handleAddItem = () => {
-    setFormItems([...formItems, { itemName: "", quantity: 1, unit: "PCS", unitPrice: 0, remarks: "" }])
-  }
-
-  const handleRemoveItem = (index: number) => {
-    if (formItems.length > 1) {
-      setFormItems(formItems.filter((_, i) => i !== index))
-    }
-  }
-
-  const handleItemChange = (index: number, field: keyof POItem, value: any) => {
-    const newItems = [...formItems]
-    newItems[index] = { ...newItems[index], [field]: value }
-    if (field === "quantity" || field === "unitPrice") {
-      newItems[index].totalPrice = (newItems[index].quantity || 0) * (newItems[index].unitPrice || 0)
-    }
-    setFormItems(newItems)
-  }
-
-  const handleEditAddItem = () => {
-    setEditFormItems([...editFormItems, { itemName: "", quantity: 1, unit: "PCS", unitPrice: 0, remarks: "" }])
-  }
-
-  const handleEditRemoveItem = (index: number) => {
-    if (editFormItems.length > 1) {
-      setEditFormItems(editFormItems.filter((_, i) => i !== index))
-    }
-  }
-
-  const handleEditItemChange = (index: number, field: keyof POItem, value: any) => {
-    const newItems = [...editFormItems]
-    newItems[index] = { ...newItems[index], [field]: value }
-    if (field === "quantity" || field === "unitPrice") {
-      newItems[index].totalPrice = (newItems[index].quantity || 0) * (newItems[index].unitPrice || 0)
-    }
-    setEditFormItems(newItems)
-  }
-
-  const handleMaterialRequestChange = (mrId: string) => {
-    const mr = materialRequests.find(m => m.id === mrId)
-    if (mr && mr.items) {
-      const items: POItem[] = mr.items.map((item: any) => ({
-        itemName: item.itemName,
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.estimatedCost || 0,
-        totalPrice: (item.quantity || 0) * (item.estimatedCost || 0),
-        remarks: item.remarks || "",
-      }))
-      setFormItems(items)
-    }
-  }
-
-  const validateItems = (items: POItem[]): boolean => {
-    for (const item of items) {
-      if (!item.itemName || item.itemName.trim() === "") {
-        toast.error("Please fill in all item names")
-        return false
-      }
-      if (!item.quantity || item.quantity <= 0) {
-        toast.error("Quantity must be greater than 0")
-        return false
-      }
-    }
-    return true
-  }
-
-  const openGRNModal = async (po: PurchaseOrder) => {
-    if (!canCreateGRNForPO(po)) {
-      toast.error("GRN can only be created when PO status is SENT, APPROVED, or PARTIALLY_RECEIVED")
-      return
-    }
-
-    setGrnPO(po)
-    setExistingGRN(null)
-
-    // default (new GRN) values
-    const defaultItems: GRNItem[] = (po.items || []).map((item) => ({
-      poItemId: item.id,
-      itemName: item.itemName,
-      orderedQuantity: item.quantity,
-      receivedQuantity: item.quantity,
-      damagedQuantity: 0,
-      remarks: "",
-    }))
-
-    // Try to load an existing GRN for this PO (if backend supports it)
-    try {
-      const res: any = await Request.get(`/v1/api/grn?purchaseOrderId=${po.id}`)
-      const grns: GoodsReceiptNote[] = res?.data || res || []
-      const latest = Array.isArray(grns) ? grns[0] : null
-      if (latest?.id) {
-        setExistingGRN(latest)
-        grnForm.setFieldsValue({
-          receivedDate: latest.receivedDate ? moment(latest.receivedDate) : moment(),
-          remarks: latest.remarks || "",
-          receivedBy: latest.receivedBy || "",
-        })
-
-        // merge quantities into PO items by purchaseOrderItemId
-        const byPoItemId = new Map<string, any>()
-        ;(latest.items || []).forEach((it: any) => {
-          // API returns purchaseOrderItemId, not poItemId
-          const itemId = it?.purchaseOrderItemId || it?.poItemId
-          if (itemId) byPoItemId.set(itemId, it)
-        })
-
-        const merged: GRNItem[] = (po.items || []).map((poItem) => {
-          const grnIt = poItem.id ? byPoItemId.get(poItem.id) : null
-          return {
-            poItemId: poItem.id,
-            itemName: poItem.itemName,
-            orderedQuantity: poItem.quantity,
-            receivedQuantity: grnIt?.receivedQuantity ?? 0,
-            damagedQuantity: grnIt?.damagedQuantity ?? 0,
-            remarks: grnIt?.remarks || "",
-          }
-        })
-        setGrnItems(merged)
-      } else {
-        setGrnItems(defaultItems)
-        grnForm.setFieldsValue({ receivedDate: moment(), remarks: "", receivedBy: "" })
-      }
-    } catch (e) {
-      // backend might not support GET yet, fall back silently
-      setGrnItems(defaultItems)
-      grnForm.setFieldsValue({ receivedDate: moment(), remarks: "", receivedBy: "" })
-    }
-
-    setGrnModalOpen(true)
-  }
-
-  const handleGRNItemChange = (index: number, field: keyof GRNItem, value: any) => {
-    const newItems = [...grnItems]
-    newItems[index] = { ...newItems[index], [field]: value }
-    setGrnItems(newItems)
-  }
-
-  const handleCreateOrUpdateGRN = async (values: any) => {
-    if (!grnPO) return
-
-    try {
-      setGrnLoading(true)
-      const payload = {
-        purchaseOrderId: grnPO.id,
-        receivedBy: values.receivedBy,
-        receivedDate: values.receivedDate?.toISOString(),
-        remarks: values.remarks || "",
-        items: grnItems.map((item) => ({
-          purchaseOrderItemId: item.poItemId,
-          receivedQuantity: item.receivedQuantity || 0,
-          damagedQuantity: item.damagedQuantity || 0,
-          remarks: item.remarks || "",
-        })),
-      }
-
-      if (existingGRN?.id) {
-        await Request.put(`/v1/api/grn/${existingGRN.id}`, payload)
-        toast.success("GRN updated successfully")
-      } else {
-        await Request.post("/v1/api/grn", payload)
-        toast.success("GRN created successfully")
-      }
-
-      setGrnModalOpen(false)
-      setGrnPO(null)
-      setGrnItems([])
-      setExistingGRN(null)
-      grnForm.resetFields()
-    } catch (error) {
-      console.log(error)
-      toast.error(existingGRN?.id ? "Failed to update GRN" : "Failed to create GRN")
-    } finally {
-      setGrnLoading(false)
-    }
-  }
-
-  const handleCreatePO = async (values: any) => {
-    try {
-      if (!selectedProject) {
-        toast.error("Please select a project first")
-        return
-      }
-      if (!validateItems(formItems)) return
-
-      setCreateLoading(true)
-      await Request.post("/v1/api/purchase-orders", {
-        ...values,
-        projectId: selectedProject.id,
-        expectedDelivery: values.expectedDelivery?.toISOString(),
-        items: formItems.map(item => ({
-          itemName: item.itemName,
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice || 0,
-          remarks: item.remarks || "",
-        })),
-      })
-      await getPurchaseOrdersByProject(selectedProject.id)
-      handleCloseCreateModal()
-      toast.success("Purchase order created successfully")
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to create purchase order")
-    } finally {
-      setCreateLoading(false)
-    }
-  }
-
-  const getProjects = async () => {
+  const fetchProjects = async () => {
     setProjectsLoading(true)
     try {
-      const response = await Request.get("/v1/api/projects/all")
-      setProjects(response.data || [])
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to load projects")
+      const res: any = await Request.get("/v1/api/projects/all")
+      setProjects(res.data || [])
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to load projects"))
     } finally {
       setProjectsLoading(false)
     }
   }
 
-  const getVendors = async () => {
-    try {
-      const response: any = await Request.get("/v1/api/vendors")
-      console.log("Vendors API response:", response)
-      const vendorList = response?.data || response || []
-      console.log("Parsed vendor list:", vendorList)
-      setVendors(Array.isArray(vendorList) ? vendorList : [])
-    } catch (error) {
-      console.log("Failed to load vendors:", error)
-    }
-  }
-
-  const getMaterialRequests = async (projectId: string) => {
-    try {
-      const response = await Request.get(`/v1/api/material-requests?projectId=${projectId}`)
-      setMaterialRequests(response.data || [])
-    } catch (error) {
-      console.log(error)
-    }
-  }
-
-  const getPurchaseOrdersByProject = async (projectId: string) => {
-    if (!projectId) return
+  const fetchPurchaseOrdersForProject = async (projectId: string, status?: string) => {
     setLoading(true)
     try {
-      const response = await Request.get(`/v1/api/purchase-orders?projectId=${projectId}`)
-      setPurchaseOrders(response.data || [])
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to load purchase orders")
+      const query = status ? `?status=${status}` : ""
+      const res: any = await Request.get(`/v1/api/purchase-orders${query}`)
+      const all: PurchaseOrder[] = res.data || []
+      setPurchaseOrders(all.filter((po) => po.materialRequest?.project?.id === projectId))
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to load purchase orders"))
+      setPurchaseOrders([])
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSelectProject = async (projectId: string) => {
-    const project = projects.find((p) => p.id === projectId)
+  const fetchApprovedMaterialRequests = async (projectId: string) => {
+    setMaterialRequestsLoading(true)
+    try {
+      const res: any = await Request.get(`/v1/api/material-requests?projectId=${projectId}&status=APPROVED`)
+      setMaterialRequests(res.data || [])
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to load material requests"))
+      setMaterialRequests([])
+    } finally {
+      setMaterialRequestsLoading(false)
+    }
+  }
+
+  const fetchActiveVendors = async () => {
+    setVendorsLoading(true)
+    try {
+      const res: any = await Request.get("/v1/api/vendors/active")
+      setVendors(res.data || [])
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to load vendors"))
+    } finally {
+      setVendorsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  const handleSelectProject = (projectId: string) => {
+    const project = projects.find((p) => p.id === projectId) || null
+    setSelectedProject(project)
+    setPurchaseOrders([])
+    setMaterialRequests([])
+    setSearchTerm("")
+    setStatusFilter("")
     if (project) {
-      setSelectedProject(project)
-      await Promise.all([
-        getPurchaseOrdersByProject(projectId),
-        getMaterialRequests(projectId)
-      ])
+      fetchPurchaseOrdersForProject(project.id)
+      fetchApprovedMaterialRequests(project.id)
     }
   }
 
-  const handleUpdateStatus = async (poId: string, status: string) => {
+  // Basic status PATCH. The SENT transition gets special WhatsApp-gated handling wired in a later step.
+  const handleStatusTransition = async (po: PurchaseOrder, status: string) => {
+    setUpdatingStatus({ poId: po.id, status })
     try {
-      await Request.put(`/v1/api/purchase-orders/${poId}`, { status })
-      setPurchaseOrders((prev) => prev.map((po) => (po.id === poId ? { ...po, status } : po)))
-      toast.success("Status updated")
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to update status")
+      await Request.patch(`/v1/api/purchase-orders/${po.id}/status`, { status })
+      setPurchaseOrders((prev) => prev.map((p) => (p.id === po.id ? { ...p, status } : p)))
+      toast.success(`Purchase order marked as ${STATUS_CONFIG[status]?.label || status}`)
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update purchase order status"))
+    } finally {
+      setUpdatingStatus(null)
     }
   }
 
-  const handleDeletePO = async (poId: string) => {
+  // "Send to Vendor" opens WhatsApp with a pre-filled message; the status PATCH only
+  // fires if a message was actually opened (i.e. the vendor has a phone number on file).
+  const handleSendToVendor = (po: PurchaseOrder) => {
+    const vendorPhone = po.vendor?.phone || po.vendorContact
+    const opened = openSendToVendorWhatsApp(
+      {
+        id: po.id,
+        poNumber: po.poNumber,
+        projectName: selectedProject?.name,
+        expectedDelivery: po.expectedDelivery ? formatDate(po.expectedDelivery) : undefined,
+        items: po.items.map((item) => ({
+          itemName: item.itemName,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+        })),
+      },
+      vendorPhone
+    )
+
+    if (!opened) {
+      toast.error("This vendor has no phone number on file. Add one before sending to vendor.")
+      return
+    }
+
+    handleStatusTransition(po, "SENT")
+  }
+
+  const renderSendToVendorOption = (po: PurchaseOrder, variant: "button" | "link" = "button") => (
+    option: StatusActionOption
+  ) => {
+    if (option.special !== "whatsapp") return undefined
+
+    const buttonClasses =
+      variant === "link"
+        ? "text-sm font-medium text-slate-900 hover:text-slate-700"
+        : "rounded-lg border border-slate-900 bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
+
+    return (
+      <Popconfirm
+        key={option.status}
+        title="Send to Vendor?"
+        description="This opens WhatsApp with a pre-filled message for the vendor. Continue?"
+        okText="Send"
+        cancelText="Cancel"
+        onConfirm={() => handleSendToVendor(po)}
+      >
+        <button type="button" className={buttonClasses}>
+          {option.label}
+        </button>
+      </Popconfirm>
+    )
+  }
+
+  const openCreateModal = () => {
+    createForm.resetFields()
+    setCreateItems([])
+    setCreateModalOpen(true)
+    if (vendors.length === 0) fetchActiveVendors()
+  }
+
+  const handleMaterialRequestSelect = (materialRequestId: string) => {
+    const mr = materialRequests.find((m) => m.id === materialRequestId)
+    setCreateItems(
+      mr
+        ? mr.items.map((item) => ({
+            itemName: item.itemName,
+            description: "",
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.estimatedCost,
+            remarks: item.remarks || "",
+          }))
+        : []
+    )
+  }
+
+  const handleCreatePO = async () => {
+    let values
     try {
-      await Request.delete(`/v1/api/purchase-orders/${poId}`)
-      setPurchaseOrders((prev) => prev.filter((po) => po.id !== poId))
-      toast.success("Purchase order deleted")
-      setActionMenuPO(null)
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to delete purchase order")
+      values = await createForm.validateFields()
+    } catch {
+      return
+    }
+
+    if (!validateItems(createItems)) {
+      toast.error("Every item needs a name and a quantity greater than 0")
+      return
+    }
+
+    setCreateLoading(true)
+    try {
+      await Request.post("/v1/api/purchase-orders", {
+        materialRequestId: values.materialRequestId,
+        vendorId: values.vendorId,
+        notes: values.notes,
+        expectedDelivery: values.expectedDelivery ? values.expectedDelivery.format("YYYY-MM-DD") : undefined,
+        items: createItems.map((item) => ({
+          itemName: item.itemName,
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          remarks: item.remarks,
+        })),
+      })
+      toast.success("Purchase order created")
+      setCreateModalOpen(false)
+      setCreateItems([])
+      if (selectedProject) fetchPurchaseOrdersForProject(selectedProject.id)
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to create purchase order"))
+    } finally {
+      setCreateLoading(false)
     }
   }
 
   const openEditModal = (po: PurchaseOrder) => {
     setEditingPO(po)
     editForm.setFieldsValue({
-      vendorName: po.vendorName,
+      vendorName: po.vendor?.name || po.vendorName,
+      vendorContact: po.vendor?.phone || po.vendorContact,
+      vendorEmail: po.vendor?.email || po.vendorEmail,
+      vendorAddress: po.vendor?.address || po.vendorAddress,
       notes: po.notes,
-      status: po.status,
-      expectedDelivery: po.expectedDelivery ? moment(po.expectedDelivery) : null,
+      expectedDelivery: po.expectedDelivery ? dayjs(po.expectedDelivery) : undefined,
     })
-    setEditFormItems(po.items.map(item => ({
-      id: item.id,
-      itemName: item.itemName,
-      quantity: item.quantity,
-      unit: item.unit,
-      unitPrice: item.unitPrice,
-      totalPrice: (item.quantity || 0) * (item.unitPrice || 0),
-      remarks: item.remarks || "",
-    })))
+    const items: EditableItem[] = po.items.map((item) => ({ ...item }))
+    setEditItems(items)
+    setOriginalEditItems(items)
     setEditModalOpen(true)
-    setActionMenuPO(null)
+  }
+
+  const itemHasChanged = (item: EditableItem, original?: EditableItem) => {
+    if (!original) return true
+    return (
+      item.itemName !== original.itemName ||
+      item.description !== original.description ||
+      item.quantity !== original.quantity ||
+      item.unit !== original.unit ||
+      item.unitPrice !== original.unitPrice ||
+      item.remarks !== original.remarks
+    )
+  }
+
+  const toItemPayload = (item: EditableItem) => ({
+    itemName: item.itemName,
+    description: item.description,
+    quantity: item.quantity,
+    unit: item.unit,
+    unitPrice: item.unitPrice,
+    remarks: item.remarks,
+  })
+
+  const handleUpdatePO = async () => {
+    if (!editingPO) return
+
+    let values
+    try {
+      values = await editForm.validateFields()
+    } catch {
+      return
+    }
+
+    if (!validateItems(editItems)) {
+      toast.error("Every item needs a name and a quantity greater than 0")
+      return
+    }
+
+    setEditLoading(true)
+    try {
+      await Request.put(`/v1/api/purchase-orders/${editingPO.id}`, {
+        vendorName: values.vendorName,
+        vendorContact: values.vendorContact,
+        vendorEmail: values.vendorEmail,
+        vendorAddress: values.vendorAddress,
+        notes: values.notes,
+        expectedDelivery: values.expectedDelivery ? values.expectedDelivery.format("YYYY-MM-DD") : undefined,
+      })
+
+      const originalById = new Map(originalEditItems.filter((item) => item.id).map((item) => [item.id, item]))
+      const currentIds = new Set(editItems.filter((item) => item.id).map((item) => item.id))
+
+      const creates = editItems
+        .filter((item) => !item.id)
+        .map((item) => Request.post(`/v1/api/purchase-orders/${editingPO.id}/items`, toItemPayload(item)))
+
+      const updates = editItems
+        .filter((item) => item.id && itemHasChanged(item, originalById.get(item.id)))
+        .map((item) => Request.put(`/v1/api/purchase-orders/items/${item.id}`, toItemPayload(item)))
+
+      const deletes = originalEditItems
+        .filter((item) => item.id && !currentIds.has(item.id))
+        .map((item) => Request.delete(`/v1/api/purchase-orders/items/${item.id}`))
+
+      await Promise.all([...creates, ...updates, ...deletes])
+
+      const refreshed: any = await Request.get(`/v1/api/purchase-orders/${editingPO.id}`)
+      const updatedPO: PurchaseOrder = refreshed.data
+      setPurchaseOrders((prev) => prev.map((p) => (p.id === updatedPO.id ? updatedPO : p)))
+
+      toast.success("Purchase order updated")
+      setEditModalOpen(false)
+      setEditingPO(null)
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to update purchase order"))
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  const handleDeletePO = async (po: PurchaseOrder) => {
+    try {
+      await Request.delete(`/v1/api/purchase-orders/${po.id}`)
+      setPurchaseOrders((prev) => prev.filter((p) => p.id !== po.id))
+      toast.success("Purchase order deleted")
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to delete purchase order"))
+    }
   }
 
   const openViewModal = (po: PurchaseOrder) => {
     setViewingPO(po)
     setViewModalOpen(true)
-    setActionMenuPO(null)
   }
 
-  const handleEditPO = async (values: any) => {
-    if (!editingPO) return
-    if (!validateItems(editFormItems)) return
+  const openGrnModal = (po: PurchaseOrder) => {
+    setGrnModalPO(po)
+    setGrnModalOpen(true)
+  }
 
-    try {
-      await Request.put(`/v1/api/purchase-orders/${editingPO.id}`, {
-        ...values,
-        expectedDelivery: values.expectedDelivery?.toISOString(),
-        items: editFormItems.map(item => ({
-          id: item.id,
-          itemName: item.itemName,
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice || 0,
-          remarks: item.remarks || "",
-        })),
-      })
-      setPurchaseOrders((prev) =>
-        prev.map((po) =>
-          po.id === editingPO.id
-            ? {
-                ...po,
-                ...values,
-                expectedDelivery: values.expectedDelivery?.toISOString(),
-                items: editFormItems,
-                totalAmount: editFormItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
-              }
-            : po
-        )
+  // GRN mutations can flip the PO's own status (e.g. SENT -> PARTIALLY_RECEIVED),
+  // so refresh the PO list whenever something changes inside the GRN modal.
+  const handleGRNMutated = () => {
+    if (selectedProject) fetchPurchaseOrdersForProject(selectedProject.id)
+  }
+
+  const grnDisabledReason = (po: PurchaseOrder) => {
+    if (!canRecordGRN) return "Only admins or accountants can record GRNs"
+    if (!canCreateGRNForPurchaseOrder(po)) return "This purchase order is not eligible for a GRN in its current status"
+    return undefined
+  }
+
+  const handlePrintPO = (po: PurchaseOrder) => {
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast.error("Please allow popups to print this purchase order")
+      return
+    }
+
+    const poNumber = po.poNumber || `PO-${po.id.slice(0, 8)}`
+    const vendorName = po.vendor?.name || po.vendorName || "—"
+    const vendorPhone = po.vendor?.phone || po.vendorContact || "—"
+    const vendorEmail = po.vendor?.email || po.vendorEmail || "—"
+    const vendorAddress = po.vendor?.address || po.vendorAddress || "—"
+    const grandTotal = po.totalAmount ?? getPOTotal(po)
+
+    const itemsRows = po.items
+      .map(
+        (item, idx) => `
+          <tr>
+            <td class="center">${idx + 1}</td>
+            <td>${item.itemName}</td>
+            <td>${item.description || "—"}</td>
+            <td class="center">${item.quantity}</td>
+            <td class="center">${item.unit}</td>
+            <td class="right">${formatCurrency(item.unitPrice || 0)}</td>
+            <td class="right">${formatCurrency(item.quantity * (item.unitPrice || 0))}</td>
+          </tr>
+        `
       )
-      toast.success("Purchase order updated")
-      setEditModalOpen(false)
-      setEditingPO(null)
-      editForm.resetFields()
-      setEditFormItems([])
-    } catch (error) {
-      console.log(error)
-      toast.error("Failed to update purchase order")
-    }
+      .join("")
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>PO - ${poNumber}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 16px; }
+            h1 { margin: 0 0 6px 0; font-size: 24px; }
+            .meta { color: #555; font-size: 13px; line-height: 1.8; }
+            .info-section { margin: 20px 0; padding: 12px; background-color: #f9f9f9; border-radius: 6px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 13px; }
+            th { background-color: #f5f5f5; font-weight: 600; }
+            .right { text-align: right; }
+            .center { text-align: center; }
+            tfoot td { font-weight: 700; }
+            @media print { body { padding: 20px; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1>KGN</h1>
+              <div class="meta">
+                <div><strong>Purchase Order:</strong> ${poNumber}</div>
+                <div><strong>Status:</strong> ${STATUS_CONFIG[po.status?.toUpperCase() || ""]?.label || po.status || "—"}</div>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <div class="meta">
+                <div><strong>Created:</strong> ${formatDate(po.createdAt)}</div>
+                ${po.expectedDelivery ? `<div><strong>Expected Delivery:</strong> ${formatDate(po.expectedDelivery)}</div>` : ""}
+              </div>
+            </div>
+          </div>
+
+          <div class="info-section">
+            <div class="meta">
+              <div><strong>Vendor:</strong> ${vendorName}</div>
+              <div><strong>Contact:</strong> ${vendorPhone}</div>
+              <div><strong>Email:</strong> ${vendorEmail}</div>
+              <div><strong>Address:</strong> ${vendorAddress}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 34px;">#</th>
+                <th>Item</th>
+                <th>Description</th>
+                <th class="center" style="width: 70px;">Qty</th>
+                <th class="center" style="width: 90px;">Unit</th>
+                <th class="right" style="width: 100px;">Unit Price</th>
+                <th class="right" style="width: 110px;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsRows}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6" class="right">Grand Total</td>
+                <td class="right">${formatCurrency(grandTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          ${po.notes ? `<div class="info-section"><strong>Notes:</strong><p>${po.notes}</p></div>` : ""}
+
+          <div style="margin-top: 40px; font-size: 12px; color: #666;">
+            <p>Generated on: ${new Date().toLocaleString()}</p>
+          </div>
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
-  const handlePrint = (po: PurchaseOrder) => {
-    // Open print-friendly view
-    const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      const totalAmount = po.items?.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0) || 0
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Purchase Order - ${po.poNumber || po.id}</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 40px; }
-              .header { text-align: center; margin-bottom: 30px; }
-              .po-number { font-size: 24px; font-weight: bold; }
-              .vendor-info { margin-bottom: 20px; }
-              .vendor-info h3 { margin-bottom: 10px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-              th { background-color: #f5f5f5; }
-              .total-row { font-weight: bold; background-color: #f9f9f9; }
-              .notes { margin-top: 30px; padding: 15px; background-color: #f9f9f9; border-radius: 5px; }
-              @media print { body { padding: 20px; } }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <div class="po-number">PURCHASE ORDER</div>
-              <div>${po.poNumber || `PO-${po.id.slice(0, 8)}`}</div>
-              <div>Date: ${moment(po.createdAt).format('MMM DD, YYYY')}</div>
-            </div>
-            <div class="vendor-info">
-              <h3>Vendor Details</h3>
-              <p><strong>${po.vendorName}</strong></p>
-              ${po.vendorAddress ? `<p>${po.vendorAddress}</p>` : ''}
-              ${po.vendorContact ? `<p>Phone: ${po.vendorContact}</p>` : ''}
-              ${po.vendorEmail ? `<p>Email: ${po.vendorEmail}</p>` : ''}
-            </div>
-            ${po.expectedDelivery ? `<p><strong>Expected Delivery:</strong> ${moment(po.expectedDelivery).format('MMM DD, YYYY')}</p>` : ''}
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Item</th>
-                  <th>Quantity</th>
-                  <th>Unit</th>
-                  <th>Unit Price</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${po.items?.map((item, idx) => `
-                  <tr>
-                    <td>${idx + 1}</td>
-                    <td>${item.itemName}</td>
-                    <td>${item.quantity}</td>
-                    <td>${item.unit}</td>
-                    <td>₹${item.unitPrice.toLocaleString()}</td>
-                    <td>₹${(item.quantity * item.unitPrice).toLocaleString()}</td>
-                  </tr>
-                `).join('')}
-                <tr class="total-row">
-                  <td colspan="5" style="text-align: right;">Grand Total</td>
-                  <td>₹${totalAmount.toLocaleString()}</td>
-                </tr>
-              </tbody>
-            </table>
-            ${po.notes ? `<div class="notes"><strong>Notes:</strong><br/>${po.notes}</div>` : ''}
-          </body>
-        </html>
-      `)
-      printWindow.document.close()
-      printWindow.print()
-    }
-    setActionMenuPO(null)
-  }
-
-  useEffect(() => {
-    getProjects()
-    getVendors()
-  }, [])
-
-  // Filter POs
   const filteredPOs = purchaseOrders.filter((po) => {
+    const term = searchTerm.trim().toLowerCase()
     const matchesSearch =
-      !searchTerm ||
-      po.vendorName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      po.poNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      po.items?.some(item => item.itemName?.toLowerCase().includes(searchTerm.toLowerCase()))
-
+      !term ||
+      po.poNumber?.toLowerCase().includes(term) ||
+      po.vendor?.name?.toLowerCase().includes(term) ||
+      po.vendorName?.toLowerCase().includes(term) ||
+      po.items?.some((item) => item.itemName?.toLowerCase().includes(term))
     const matchesStatus = !statusFilter || po.status?.toUpperCase() === statusFilter
-
     return matchesSearch && matchesStatus
   })
 
-  const formatDate = (date?: string) => (date ? moment(date).format("MMM DD, YYYY") : "—")
-  const formatCurrency = (value?: number) =>
-    value !== undefined ? Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value) : "—"
-
-  // Stats
   const totalPOs = purchaseOrders.length
-  const draftPOs = purchaseOrders.filter((po) => po.status?.toUpperCase() === "DRAFT").length
-  const confirmedPOs = purchaseOrders.filter((po) => po.status?.toUpperCase() === "CONFIRMED").length
-  const totalValue = purchaseOrders.reduce((sum, po) => {
-    const poTotal = po.items?.reduce((itemSum, item) => itemSum + (item.quantity * item.unitPrice), 0) || 0
-    return sum + poTotal
-  }, 0)
+  const sentCount = purchaseOrders.filter((po) => po.status?.toUpperCase() === "SENT").length
+  const approvedCount = purchaseOrders.filter((po) => po.status?.toUpperCase() === "APPROVED").length
+  const totalValue = purchaseOrders.reduce((sum, po) => sum + getPOTotal(po), 0)
 
-  const canCreatePOs = permissions.find((p: any) => p.name === "create_purchase_orders") || permissions.find((p: any) => p.name === "create_tasks") || permissions.find((p: any) => p.name === "view_projects")
-  const canEditPOs = permissions.find((p: any) => p.name === "edit_purchase_orders") || permissions.find((p: any) => p.name === "edit_tasks") || permissions.find((p: any) => p.name === "view_projects")
-  const canDeletePOs = permissions.find((p: any) => p.name === "delete_purchase_orders") || permissions.find((p: any) => p.name === "delete_tasks")
-
-  const renderItemsForm = (
-    items: POItem[],
-    onChange: (index: number, field: keyof POItem, value: any) => void,
-    onAdd: () => void,
-    onRemove: (index: number) => void
-  ) => (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-gray-700">Items</label>
-        <button
-          type="button"
-          onClick={onAdd}
-          className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-700"
-        >
-          <FiPlus size={16} />
-          Add Item
-        </button>
-      </div>
-      
-      {/* Items Table */}
-      <div className="border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name *</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Qty *</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Unit</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Unit Price</th>
-              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-28">Total</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-32">Remarks</th>
-              <th className="px-2 py-2 w-10"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
-            {items.map((item, index) => (
-              <tr key={index} className="bg-white">
-                <td className="px-2 py-2">
-                  <Input
-                    placeholder="Item Name"
-                    value={item.itemName}
-                    onChange={(e) => onChange(index, "itemName", e.target.value)}
-                    size="small"
-                  />
-                </td>
-                <td className="px-2 py-2">
-                  <InputNumber
-                    placeholder="Qty"
-                    value={item.quantity}
-                    onChange={(val) => onChange(index, "quantity", val || 1)}
-                    min={1}
-                    className="w-full"
-                    size="small"
-                  />
-                </td>
-                <td className="px-2 py-2">
-                  <Select
-                    placeholder="Unit"
-                    value={item.unit}
-                    onChange={(val) => onChange(index, "unit", val)}
-                    options={UNIT_OPTIONS}
-                    className="w-full"
-                    size="small"
-                  />
-                </td>
-                <td className="px-2 py-2">
-                  <InputNumber
-                    placeholder="Price"
-                    value={item.unitPrice}
-                    onChange={(val) => onChange(index, "unitPrice", val || 0)}
-                    min={0}
-                    className="w-full"
-                    size="small"
-                    formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                    parser={(value) => value?.replace(/,/g, '') as unknown as number}
-                  />
-                </td>
-                <td className="px-2 py-2 text-right text-sm font-medium text-gray-700">
-                  {formatCurrency((item.quantity || 0) * (item.unitPrice || 0))}
-                </td>
-                <td className="px-2 py-2">
-                  <Input
-                    placeholder="Remarks"
-                    value={item.remarks}
-                    onChange={(e) => onChange(index, "remarks", e.target.value)}
-                    size="small"
-                  />
-                </td>
-                <td className="px-2 py-2">
-                  {items.length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemove(index)}
-                      className="p-1 rounded text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors"
-                    >
-                      <FiTrash2 size={14} />
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot className="bg-gray-50">
-            <tr>
-              <td colSpan={4} className="px-3 py-2 text-right text-sm font-medium text-gray-700">Grand Total:</td>
-              <td className="px-2 py-2 text-right text-base font-bold text-indigo-600">
-                {formatCurrency(items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.unitPrice || 0)), 0))}
-              </td>
-              <td colSpan={2}></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-  )
+  const hasActiveFilters = !!searchTerm || !!statusFilter
+  const clearFilters = () => {
+    setSearchTerm("")
+    setStatusFilter("")
+  }
 
   return (
     <ParentLayout title="Purchase Orders">
@@ -802,7 +667,6 @@ const PurchaseOrders = () => {
               </div>
             </div>
 
-            {/* Project Selector */}
             <div className="flex items-center gap-3">
               <Select
                 placeholder="Select a project..."
@@ -812,20 +676,27 @@ const PurchaseOrders = () => {
                 className="w-64"
                 size="large"
                 showSearch
-                filterOption={(input, option) =>
-                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
                 options={projects.map((p) => ({ label: p.name, value: p.id }))}
                 suffixIcon={<FiChevronDown className="text-gray-400" />}
               />
-              {selectedProject && canCreatePOs && (
-                <button
-                  onClick={() => setCreateModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+              {selectedProject && isPOManager && (
+                <Tooltip
+                  title={
+                    !materialRequestsLoading && materialRequests.length === 0
+                      ? "No approved material requests available for this project yet"
+                      : undefined
+                  }
                 >
-                  <FiPlus size={18} />
-                  New PO
-                </button>
+                  <button
+                    onClick={openCreateModal}
+                    disabled={!materialRequestsLoading && materialRequests.length === 0}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  >
+                    <FiPlus size={18} />
+                    New PO
+                  </button>
+                </Tooltip>
               )}
             </div>
           </div>
@@ -844,6 +715,10 @@ const PurchaseOrders = () => {
               }
             />
           </div>
+        ) : loading ? (
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <Skeleton active paragraph={{ rows: 6 }} />
+          </div>
         ) : (
           <>
             {/* Stats */}
@@ -861,12 +736,12 @@ const PurchaseOrders = () => {
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
-                    <span className="h-3 w-3 rounded-full bg-gray-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50">
+                    <span className="h-3 w-3 rounded-full bg-blue-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-gray-600">{draftPOs}</p>
-                    <p className="text-xs text-gray-500">Drafts</p>
+                    <p className="text-2xl font-bold text-blue-600">{sentCount}</p>
+                    <p className="text-xs text-gray-500">Sent</p>
                   </div>
                 </div>
               </div>
@@ -876,18 +751,18 @@ const PurchaseOrders = () => {
                     <span className="h-3 w-3 rounded-full bg-emerald-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-emerald-600">{confirmedPOs}</p>
-                    <p className="text-xs text-gray-500">Confirmed</p>
+                    <p className="text-2xl font-bold text-emerald-600">{approvedCount}</p>
+                    <p className="text-xs text-gray-500">Approved</p>
                   </div>
                 </div>
               </div>
               <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50">
-                    <BiRupee className="text-indigo-600" size={20} />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50">
+                    <BiRupee className="text-violet-600" size={20} />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-indigo-600">{formatCurrency(totalValue)}</p>
+                    <p className="text-2xl font-bold text-violet-600">{formatCurrency(totalValue)}</p>
                     <p className="text-xs text-gray-500">Total Value</p>
                   </div>
                 </div>
@@ -899,7 +774,7 @@ const PurchaseOrders = () => {
               <div className="relative flex-1 max-w-md">
                 <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <Input
-                  placeholder="Search by vendor, PO number, or items..."
+                  placeholder="Search by vendor, PO number or item..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="h-10 pl-10 rounded-lg border-gray-200"
@@ -909,23 +784,17 @@ const PurchaseOrders = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <Select
                   value={statusFilter || undefined}
-                  onChange={setStatusFilter}
+                  onChange={(value) => setStatusFilter(value || "")}
                   placeholder="Status"
-                  className="w-36"
+                  className="w-44"
                   allowClear
                   options={STATUS_OPTIONS.map((s) => ({
                     label: renderStatusOption(s.label, s.color),
                     value: s.value,
                   }))}
                 />
-                {(searchTerm || statusFilter) && (
-                  <button
-                    onClick={() => {
-                      setSearchTerm("")
-                      setStatusFilter("")
-                    }}
-                    className="text-sm font-medium text-violet-600 hover:text-violet-700"
-                  >
+                {hasActiveFilters && (
+                  <button onClick={clearFilters} className="text-sm font-medium text-gray-500 hover:text-gray-700">
                     Clear
                   </button>
                 )}
@@ -933,70 +802,74 @@ const PurchaseOrders = () => {
             </div>
 
             {/* PO List */}
-            {loading ? (
-              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-                <Skeleton active paragraph={{ rows: 5 }} />
-              </div>
-            ) : filteredPOs.length === 0 ? (
-              <div className="rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
+            {filteredPOs.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white py-20 shadow-sm">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={searchTerm || statusFilter ? "No purchase orders match your filters" : "No purchase orders yet"}
-                >
-                  {canCreatePOs && !searchTerm && !statusFilter && (
-                    <button
-                      onClick={() => setCreateModalOpen(true)}
-                      className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-                    >
-                      <FiPlus size={16} />
-                      Create first PO
-                    </button>
-                  )}
-                </Empty>
+                  description={
+                    <div className="text-center">
+                      <p className="text-gray-500">
+                        {purchaseOrders.length === 0 ? "No purchase orders yet" : "No purchase orders match your filters"}
+                      </p>
+                      {purchaseOrders.length === 0 && isPOManager && (
+                        <Tooltip
+                          title={
+                            !materialRequestsLoading && materialRequests.length === 0
+                              ? "No approved material requests available for this project yet"
+                              : undefined
+                          }
+                        >
+                          <button
+                            onClick={openCreateModal}
+                            disabled={!materialRequestsLoading && materialRequests.length === 0}
+                            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                          >
+                            <FiPlus size={16} />
+                            Create first PO
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
+                  }
+                />
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* PO Count Header */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-500">
-                    {filteredPOs.length} purchase order{filteredPOs.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-
-                {/* PO Cards */}
+              <div className="flex flex-col gap-4">
                 {filteredPOs.map((po) => {
-                  const statusConfig = STATUS_CONFIG[po.status?.toUpperCase() || "DRAFT"] || STATUS_CONFIG.DRAFT
-                  const totalAmount = po.items?.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0) || 0
+                  const vendorName = po.vendor?.name || po.vendorName || "—"
+                  const vendorPhone = po.vendor?.phone || po.vendorContact
+                  const total = po.totalAmount ?? getPOTotal(po)
+                  const canEditOrDelete = isPOManager && po.status?.toUpperCase() === "APPROVED"
+                  const editDeleteDisabledReason = !isPOManager
+                    ? "Only admins can edit or delete purchase orders"
+                    : "Only purchase orders in Approved status can be edited or deleted"
+                  const transitions = getTransitions(PO_TRANSITIONS, po.status?.toUpperCase())
 
                   return (
-                    <div
-                      key={po.id}
-                      className="rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md"
-                    >
-                      {/* PO Header */}
+                    <div key={po.id} className="rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md">
                       <div className="flex items-start gap-4 p-4">
-                        {/* Icon */}
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                          <LuClipboardList className="text-indigo-600" size={20} />
+                          <FiPackage className="text-indigo-600" size={20} />
                         </div>
 
-                        {/* PO Content */}
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <h3 className="text-base font-semibold text-gray-900">
                                   {po.poNumber || `PO-${po.id.slice(0, 8)}`}
                                 </h3>
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${statusConfig.bgColor} ${statusConfig.color}`}>
-                                  <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: statusConfig.dotColor, display: 'inline-block' }} />
-                                  {statusConfig.label}
-                                </span>
+                                <StatusBadge status={po.status} />
                               </div>
-                              <p className="mt-1 text-sm text-gray-600">
-                                <span className="font-medium">{po.vendorName}</span>
-                                {po.vendorContact && <span className="text-gray-400 ml-2">• {po.vendorContact}</span>}
-                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                                <span>{vendorName}</span>
+                                {vendorPhone && (
+                                  <span className="inline-flex items-center gap-1 text-gray-400">
+                                    <FiPhone size={12} />
+                                    {vendorPhone}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             {/* Actions Menu */}
@@ -1010,47 +883,88 @@ const PurchaseOrders = () => {
                               {actionMenuPO === po.id && (
                                 <>
                                   <div className="fixed inset-0 z-10" onClick={() => setActionMenuPO(null)} />
-                                  <div className="absolute right-0 top-9 z-20 w-44 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
+                                  <div className="absolute right-0 top-9 z-20 w-52 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
                                     <button
-                                      onClick={() => openViewModal(po)}
+                                      onClick={() => {
+                                        setActionMenuPO(null)
+                                        openViewModal(po)
+                                      }}
                                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
                                     >
                                       <FiEye size={16} className="text-gray-400" />
                                       View Details
                                     </button>
                                     <button
-                                      onClick={() => handlePrint(po)}
+                                      onClick={() => {
+                                        setActionMenuPO(null)
+                                        handlePrintPO(po)
+                                      }}
                                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
                                     >
                                       <FiPrinter size={16} className="text-gray-400" />
                                       Print PO
                                     </button>
-                                    <button
-                                      onClick={() => openGRNModal(po)}
-                                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-                                    >
-                                      <FiPackage size={16} className="text-gray-400" />
-                                      Record GRN
-                                    </button>
-                                    {canEditPOs && (
-                                      <button
-                                        onClick={() => openEditModal(po)}
-                                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-                                      >
-                                        <FiEdit2 size={16} className="text-gray-400" />
-                                        Edit PO
-                                      </button>
+                                    {isPOManager && (
+                                      <Tooltip title={!canEditOrDelete ? editDeleteDisabledReason : undefined} placement="left">
+                                        <button
+                                          onClick={() => {
+                                            if (!canEditOrDelete) return
+                                            setActionMenuPO(null)
+                                            openEditModal(po)
+                                          }}
+                                          disabled={!canEditOrDelete}
+                                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+                                        >
+                                          <FiEdit2 size={16} className={canEditOrDelete ? "text-gray-400" : ""} />
+                                          Edit PO
+                                        </button>
+                                      </Tooltip>
                                     )}
-                                    {canDeletePOs && (
+                                    <Tooltip title={grnDisabledReason(po)} placement="left">
+                                      <button
+                                        onClick={() => {
+                                          if (grnDisabledReason(po)) return
+                                          setActionMenuPO(null)
+                                          openGrnModal(po)
+                                        }}
+                                        disabled={!!grnDisabledReason(po)}
+                                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+                                      >
+                                        <FiFileText size={16} className={grnDisabledReason(po) ? "" : "text-gray-400"} />
+                                        Record GRN
+                                      </button>
+                                    </Tooltip>
+                                    {isPOManager && (
                                       <>
                                         <div className="my-1 border-t border-gray-100" />
-                                        <button
-                                          onClick={() => handleDeletePO(po.id)}
-                                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
-                                        >
-                                          <FiTrash2 size={16} />
-                                          Delete PO
-                                        </button>
+                                        {canEditOrDelete ? (
+                                          <Popconfirm
+                                            title="Delete this purchase order?"
+                                            description="This action cannot be undone."
+                                            okText="Delete"
+                                            okButtonProps={{ danger: true }}
+                                            cancelText="Cancel"
+                                            onConfirm={() => {
+                                              setActionMenuPO(null)
+                                              handleDeletePO(po)
+                                            }}
+                                          >
+                                            <button className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
+                                              <FiTrash2 size={16} />
+                                              Delete PO
+                                            </button>
+                                          </Popconfirm>
+                                        ) : (
+                                          <Tooltip title={editDeleteDisabledReason} placement="left">
+                                            <button
+                                              disabled
+                                              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-300 cursor-not-allowed"
+                                            >
+                                              <FiTrash2 size={16} />
+                                              Delete PO
+                                            </button>
+                                          </Tooltip>
+                                        )}
                                       </>
                                     )}
                                   </div>
@@ -1061,7 +975,6 @@ const PurchaseOrders = () => {
 
                           {/* Items Preview */}
                           <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-gray-500">{po.items?.length || 0} items:</span>
                             {po.items?.slice(0, 3).map((item, idx) => (
                               <span key={idx} className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700">
                                 {item.itemName}
@@ -1073,77 +986,63 @@ const PurchaseOrders = () => {
                             )}
                           </div>
 
-                          {/* PO Meta Info */}
+                          {/* Meta Info */}
                           <div className="mt-4 flex flex-wrap items-center gap-3">
-                            {/* Total Amount */}
-                            <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-1.5">
-                              <BiRupee className="text-indigo-600" size={16} />
-                              <span className="text-sm font-semibold text-indigo-700">{formatCurrency(totalAmount)}</span>
+                            <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-1.5">
+                              <BiRupee className="text-violet-600" size={16} />
+                              <span className="text-sm font-semibold text-violet-700">{formatCurrency(total)}</span>
                             </div>
-
-                            {/* Expected Delivery */}
                             {po.expectedDelivery && (
-                              <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                                <FiCalendar size={14} />
-                                Expected: {formatDate(po.expectedDelivery)}
+                              <div className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                                <FiCalendar size={12} />
+                                Expected {formatDate(po.expectedDelivery)}
                               </div>
                             )}
-
-                            {/* Created Date */}
-                            <div className="text-xs text-gray-500">
+                            <div className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                              <FiClock size={12} />
                               Created {formatDate(po.createdAt)}
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      {/* PO Footer - Status Controls */}
+                      {/* Footer */}
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {/* Status Dropdown */}
-                          <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-1 py-1">
-                            {/* <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: statusConfig.dotColor, display: 'inline-block', marginLeft: 8 }} /> */}
-                            <Select
-                              value={po.status || "DRAFT"}
-                              onChange={(value) => handleUpdateStatus(po.id, value)}
-                              size="small"
-                              variant="borderless"
-                              style={{ minWidth: 126 }}
-                              options={STATUS_OPTIONS.map((s) => ({
-                                label: (
-                                  <span className="flex items-center gap-2">
-                                    <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: s.color, display: 'inline-block' }} />
-                                    {s.label}
-                                  </span>
-                                ),
-                                value: s.value,
-                              }))}
+                        <div>
+                          {isPOManager && (
+                            <StatusActionButtons
+                              options={transitions}
+                              updatingStatus={updatingStatus?.poId === po.id ? updatingStatus.status : null}
+                              onTransition={(status) => handleStatusTransition(po, status)}
+                              renderCustom={renderSendToVendorOption(po, "link")}
+                              variant="link"
                             />
-                          </div>
+                          )}
                         </div>
-
-                        {/* Action Buttons */}
                         <div className="flex items-center gap-2">
+                          <Tooltip title={grnDisabledReason(po) || "Record GRN"}>
+                            <button
+                              onClick={() => {
+                                if (grnDisabledReason(po)) return
+                                openGrnModal(po)
+                              }}
+                              disabled={!!grnDisabledReason(po)}
+                              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                            >
+                              <FiFileText size={16} />
+                            </button>
+                          </Tooltip>
                           <button
-                            onClick={() => handlePrint(po)}
-                            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                            onClick={() => handlePrintPO(po)}
+                            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                           >
-                            <FiPrinter size={14} />
-                            Print
+                            <FiPrinter size={16} />
                           </button>
                           <button
                             onClick={() => openViewModal(po)}
-                            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                           >
-                            <FiEye size={14} />
-                            View
-                          </button>
-                          <button
-                            onClick={() => openGRNModal(po)}
-                            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-                          >
-                            <FiPackage size={14} />
-                            GRN
+                            <FiEye size={16} />
                           </button>
                         </div>
                       </div>
@@ -1158,459 +1057,234 @@ const PurchaseOrders = () => {
 
       {/* Create PO Modal */}
       <Modal
-        title="Create Purchase Order"
+        title="New Purchase Order"
         open={createModalOpen}
-        onCancel={handleCloseCreateModal}
-        footer={null}
-        width={1000}
+        onCancel={() => setCreateModalOpen(false)}
+        onOk={handleCreatePO}
+        confirmLoading={createLoading}
+        okText="Create PO"
+        width={800}
+        destroyOnClose
       >
-        <Form form={form} layout="vertical" onFinish={handleCreatePO} className="mt-4">
-          {/* Link to Material Request */}
-          <Form.Item label="Link to Material Request (Optional)" name="materialRequestId">
+        <Form form={createForm} layout="vertical" className="mt-4">
+          <Form.Item
+            label="Material Request"
+            name="materialRequestId"
+            rules={[{ required: true, message: "Please select a material request" }]}
+          >
             <Select
-              placeholder="Select a material request to auto-fill items"
+              placeholder="Select an approved material request"
+              showSearch
+              loading={materialRequestsLoading}
+              filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
               options={materialRequests.map((mr) => ({ label: mr.title, value: mr.id }))}
-              onChange={handleMaterialRequestChange}
-              allowClear
+              notFoundContent={materialRequestsLoading ? "Loading..." : "No approved material requests found"}
+              onChange={handleMaterialRequestSelect}
             />
           </Form.Item>
 
-          {/* Vendor Information */}
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 mb-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <FiUser size={16} />
-              Vendor Information
-            </h4>
-            <div className="grid grid-cols-2 gap-4">
-              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please select vendor name" }]}>
-                <Select
-                  placeholder="Select a Vendor Name"
-                  options={vendors.map((vendor) => ({ label: vendor.name, value: vendor.name }))}
-                  showSearch
-                  filterOption={(input, option) =>
-                    (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-                  }
-                  allowClear
-                />
-              </Form.Item>
-              <Form.Item label="Expected Delivery" name="expectedDelivery">
-                <DatePicker className="w-full" placeholder="Select expected delivery date" />
-              </Form.Item>
-            </div>
-          </div>
-
-          {renderItemsForm(formItems, handleItemChange, handleAddItem, handleRemoveItem)}
-
-          <Form.Item label="Notes" name="notes" className="mt-4">
-            <Input.TextArea rows={2} placeholder="Additional notes or terms" />
+          <Form.Item label="Vendor" name="vendorId" rules={[{ required: true, message: "Please select a vendor" }]}>
+            <Select
+              placeholder="Select a vendor"
+              showSearch
+              loading={vendorsLoading}
+              filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
+              options={vendors.map((v) => ({ label: v.name, value: v.id }))}
+              notFoundContent={vendorsLoading ? "Loading..." : "No active vendors found"}
+            />
           </Form.Item>
 
-          <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={handleCloseCreateModal}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createLoading}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-            >
-              {createLoading ? "Creating..." : "Create Purchase Order"}
-            </button>
-          </div>
+          <Form.Item label="Expected Delivery" name="expectedDelivery">
+            <DatePicker className="w-full" format="MMM DD, YYYY" />
+          </Form.Item>
+
+          <Form.Item label={null}>
+            <ItemsTableEditor items={createItems} onChange={setCreateItems} />
+          </Form.Item>
+
+          <Form.Item label="Notes" name="notes">
+            <Input.TextArea rows={3} placeholder="Any additional notes for this purchase order..." />
+          </Form.Item>
         </Form>
       </Modal>
 
       {/* Edit PO Modal */}
       <Modal
-        title="Edit Purchase Order"
+        title={`Edit ${editingPO?.poNumber || "Purchase Order"}`}
         open={editModalOpen}
         onCancel={() => {
           setEditModalOpen(false)
           setEditingPO(null)
-          editForm.resetFields()
-          setEditFormItems([])
         }}
-        footer={null}
-        width={1000}
+        onOk={handleUpdatePO}
+        confirmLoading={editLoading}
+        okText="Save Changes"
+        width={800}
+        destroyOnClose
       >
-        <Form form={editForm} layout="vertical" onFinish={handleEditPO} className="mt-4">
-          {/* Vendor Information */}
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 mb-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <FiUser size={16} />
-              Vendor Information
-            </h4>
-            <div className="grid grid-cols-3 gap-4">
-              <Form.Item label="Vendor Name" name="vendorName" rules={[{ required: true, message: "Please select vendor name" }]}>
-                <Select
-                  placeholder="Select a Vendor Name"
-                  options={vendors.map((vendor) => ({ label: vendor.name, value: vendor.name }))}
-                  showSearch
-                  filterOption={(input, option) =>
-                    (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-                  }
-                  allowClear
-                />
-              </Form.Item>
-              <Form.Item label="Expected Delivery" name="expectedDelivery">
-                <DatePicker className="w-full" placeholder="Select expected delivery date" />
-              </Form.Item>
-              <Form.Item label="Status" name="status">
-                <Select
-                  options={STATUS_OPTIONS.map((s) => ({
-                    label: renderStatusOption(s.label, s.color),
-                    value: s.value,
-                  }))}
-                />
-              </Form.Item>
-            </div>
+        <Form form={editForm} layout="vertical" className="mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Form.Item
+              label="Vendor Name"
+              name="vendorName"
+              rules={[{ required: true, message: "Please enter the vendor name" }]}
+            >
+              <Input placeholder="Vendor name" />
+            </Form.Item>
+            <Form.Item label="Vendor Contact" name="vendorContact">
+              <Input placeholder="Phone number" />
+            </Form.Item>
+            <Form.Item label="Vendor Email" name="vendorEmail">
+              <Input placeholder="Email address" />
+            </Form.Item>
+            <Form.Item label="Vendor Address" name="vendorAddress">
+              <Input placeholder="Address" />
+            </Form.Item>
           </div>
 
-          {renderItemsForm(editFormItems, handleEditItemChange, handleEditAddItem, handleEditRemoveItem)}
-
-          <Form.Item label="Notes" name="notes" className="mt-4">
-            <Input.TextArea rows={2} placeholder="Additional notes or terms" />
+          <Form.Item label="Expected Delivery" name="expectedDelivery">
+            <DatePicker className="w-full" format="MMM DD, YYYY" />
           </Form.Item>
 
-          <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={() => {
-                setEditModalOpen(false)
-                setEditingPO(null)
-                editForm.resetFields()
-                setEditFormItems([])
-              }}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-            >
-              Save Changes
-            </button>
-          </div>
+          <Form.Item label={null}>
+            <ItemsTableEditor items={editItems} onChange={setEditItems} />
+          </Form.Item>
+
+          <Form.Item label="Notes" name="notes">
+            <Input.TextArea rows={3} placeholder="Any additional notes for this purchase order..." />
+          </Form.Item>
         </Form>
       </Modal>
 
       {/* View Details Modal */}
       <Modal
-        title="Purchase Order Details"
+        title={null}
         open={viewModalOpen}
         onCancel={() => {
           setViewModalOpen(false)
           setViewingPO(null)
         }}
         footer={null}
-        width={800}
+        width={820}
+        destroyOnClose
       >
         {viewingPO && (
-          <div className="mt-4 space-y-6">
-            {/* Header Info */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">{viewingPO.poNumber || `PO-${viewingPO.id.slice(0, 8)}`}</h3>
-                <p className="text-sm text-gray-500">Created {formatDate(viewingPO.createdAt)}</p>
+          <div className="flex flex-col gap-5 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {viewingPO.poNumber || `PO-${viewingPO.id.slice(0, 8)}`}
+                </h2>
+                <StatusBadge status={viewingPO.status} />
               </div>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${STATUS_CONFIG[viewingPO.status?.toUpperCase() || "DRAFT"]?.bgColor} ${STATUS_CONFIG[viewingPO.status?.toUpperCase() || "DRAFT"]?.color}`}>
-                <span className={`h-2 w-2 rounded-full ${STATUS_CONFIG[viewingPO.status?.toUpperCase() || "DRAFT"]?.dotColor}`} />
-                {STATUS_CONFIG[viewingPO.status?.toUpperCase() || "DRAFT"]?.label}
-              </span>
+              {isPOManager && (
+                <StatusActionButtons
+                  options={getTransitions(PO_TRANSITIONS, viewingPO.status?.toUpperCase())}
+                  updatingStatus={updatingStatus?.poId === viewingPO.id ? updatingStatus.status : null}
+                  onTransition={(status) => handleStatusTransition(viewingPO, status)}
+                  renderCustom={renderSendToVendorOption(viewingPO, "button")}
+                />
+              )}
             </div>
 
-            {/* Vendor Info */}
-            <div className="rounded-lg bg-gray-50 p-4">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">Vendor Details</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-gray-700">Vendor Details</h3>
+              <div className="grid grid-cols-1 gap-2 text-sm text-gray-600 sm:grid-cols-2">
                 <div className="flex items-center gap-2">
-                  <FiUser className="text-gray-400" size={16} />
-                  <span className="font-medium">{viewingPO.vendorName}</span>
+                  <FiUser className="shrink-0 text-gray-400" size={14} />
+                  {viewingPO.vendor?.name || viewingPO.vendorName || "—"}
                 </div>
-                {viewingPO.vendorContact && (
-                  <div className="flex items-center gap-2">
-                    <FiPhone className="text-gray-400" size={16} />
-                    <span>{viewingPO.vendorContact}</span>
-                  </div>
-                )}
-                {viewingPO.vendorEmail && (
-                  <div className="flex items-center gap-2">
-                    <FiMail className="text-gray-400" size={16} />
-                    <span>{viewingPO.vendorEmail}</span>
-                  </div>
-                )}
-                {viewingPO.expectedDelivery && (
-                  <div className="flex items-center gap-2">
-                    <FiCalendar className="text-gray-400" size={16} />
-                    <span>Expected: {formatDate(viewingPO.expectedDelivery)}</span>
-                  </div>
-                )}
-                {viewingPO.vendorAddress && (
-                  <div className="col-span-2 flex items-start gap-2">
-                    <FiMapPin className="text-gray-400 mt-0.5" size={16} />
-                    <span>{viewingPO.vendorAddress}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <FiPhone className="shrink-0 text-gray-400" size={14} />
+                  {viewingPO.vendor?.phone || viewingPO.vendorContact || "—"}
+                </div>
+                <div className="flex items-center gap-2">
+                  <FiMail className="shrink-0 text-gray-400" size={14} />
+                  {viewingPO.vendor?.email || viewingPO.vendorEmail || "—"}
+                </div>
+                <div className="flex items-center gap-2">
+                  <FiMapPin className="shrink-0 text-gray-400" size={14} />
+                  {viewingPO.vendor?.address || viewingPO.vendorAddress || "—"}
+                </div>
               </div>
             </div>
 
-            {/* Items Table */}
-            <div>
-              <h4 className="mb-3 text-sm font-semibold text-gray-900">Items ({viewingPO.items?.length || 0})</h4>
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">#</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Item</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Qty</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Unit</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Unit Price</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
-                    {viewingPO.items?.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">{idx + 1}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">{item.itemName}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-center text-sm text-gray-700">{item.quantity}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-center text-sm text-gray-500">{UNIT_OPTIONS.find(u => u.value === item.unit)?.label || item.unit}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-700">{formatCurrency(item.unitPrice)}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(item.quantity * item.unitPrice)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-gray-50">
-                    <tr>
-                      <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Grand Total</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold text-indigo-600">
-                        {formatCurrency(viewingPO.items?.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0) || 0)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
+            <ItemsTableEditor items={viewingPO.items} onChange={() => {}} disabled />
 
-            {/* Notes */}
             {viewingPO.notes && (
-              <div className="rounded-lg bg-gray-50 p-4">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">Notes</h4>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <h3 className="mb-1 text-sm font-semibold text-gray-700">Notes</h3>
                 <p className="text-sm text-gray-600">{viewingPO.notes}</p>
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-4">
+              <button
+                onClick={() => handlePrintPO(viewingPO)}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <FiPrinter size={16} />
+                Print
+              </button>
+              {isPOManager && (
+                <Tooltip
+                  title={
+                    viewingPO.status?.toUpperCase() !== "APPROVED"
+                      ? "Only purchase orders in Approved status can be edited"
+                      : undefined
+                  }
+                >
+                  <button
+                    onClick={() => {
+                      if (viewingPO.status?.toUpperCase() !== "APPROVED") return
+                      setViewModalOpen(false)
+                      openEditModal(viewingPO)
+                    }}
+                    disabled={viewingPO.status?.toUpperCase() !== "APPROVED"}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  >
+                    <FiEdit2 size={16} />
+                    Edit PO
+                  </button>
+                </Tooltip>
+              )}
               <button
                 onClick={() => {
                   setViewModalOpen(false)
                   setViewingPO(null)
                 }}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Close
               </button>
-              <button
-                onClick={() => handlePrint(viewingPO)}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                <FiPrinter size={16} />
-                Print
-              </button>
-              <button
-                onClick={() => {
-                  setViewModalOpen(false)
-                  openGRNModal(viewingPO)
-                }}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                <FiPackage size={16} />
-                Record GRN
-              </button>
-              {canEditPOs && (
-                <button
-                  onClick={() => {
-                    setViewModalOpen(false)
-                    openEditModal(viewingPO)
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-                >
-                  <FiEdit2 size={16} />
-                  Edit PO
-                </button>
-              )}
             </div>
           </div>
         )}
       </Modal>
 
-      {/* GRN Modal */}
-      <Modal
-        title="Goods Receiving Note (GRN)"
+      {/* Record GRN Modal */}
+      <GRNRecordModal
         open={grnModalOpen}
-        onCancel={() => {
+        po={
+          grnModalPO
+            ? {
+                id: grnModalPO.id,
+                poNumber: grnModalPO.poNumber,
+                vendorName: grnModalPO.vendor?.name || grnModalPO.vendorName,
+                items: grnModalPO.items,
+              }
+            : null
+        }
+        poStatus={grnModalPO?.status}
+        canManage={canRecordGRN}
+        onClose={() => {
           setGrnModalOpen(false)
-          setGrnPO(null)
-          setGrnItems([])
-          setExistingGRN(null)
-          grnForm.resetFields()
+          setGrnModalPO(null)
         }}
-        footer={null}
-        width={1000}
-      >
-        {grnPO && (
-          <Form form={grnForm} layout="vertical" onFinish={handleCreateOrUpdateGRN} className="mt-4">
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <Form.Item label="PO Number">
-                <Input value={grnPO.poNumber || `PO-${grnPO.id.slice(0, 8)}`} disabled />
-              </Form.Item>
-              <Form.Item label="Vendor">
-                <Input value={grnPO.vendorName} disabled />
-              </Form.Item>
-              <Form.Item
-                label="GRN Date"
-                name="receivedDate"
-                rules={[{ required: true, message: "Please select GRN date" }]}
-              >
-                <DatePicker className="w-full" />
-              </Form.Item>
-              <Form.Item
-                label="Received By"
-                name="receivedBy"
-                rules={[{ required: true, message: "Please enter who received the goods" }]}
-              >
-                <Input placeholder="Enter receiver name" />
-              </Form.Item>
-            </div>
-            <Form.Item label="Remarks" name="remarks" className="mb-4">
-              <Input.TextArea rows={2} placeholder="Overall remarks for this GRN" />
-            </Form.Item>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <FiPackage size={16} className="text-gray-400" />
-                  GRN Items
-                </label>
-                <span className="text-xs text-gray-500">
-                  Enter received and damaged quantities for each ordered item
-                </span>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                        Item
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-20">
-                        Ordered
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-24">
-                        Received
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-24">
-                        Damaged
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-24">
-                        Net Received
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-40">
-                        Item Remarks
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white">
-                    {grnItems.map((item, index) => {
-                      const netReceived =
-                        (item.receivedQuantity || 0) - (item.damagedQuantity || 0)
-
-                      return (
-                        <tr key={index}>
-                          <td className="px-3 py-2 text-sm text-gray-800">
-                            {item.itemName}
-                          </td>
-                          <td className="px-3 py-2 text-center text-sm text-gray-600">
-                            {item.orderedQuantity}
-                          </td>
-                          <td className="px-3 py-2">
-                            <InputNumber
-                              min={0}
-                              value={item.receivedQuantity}
-                              onChange={(val) =>
-                                handleGRNItemChange(index, "receivedQuantity", val || 0)
-                              }
-                              className="w-full"
-                              size="small"
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <InputNumber
-                              min={0}
-                              value={item.damagedQuantity}
-                              onChange={(val) =>
-                                handleGRNItemChange(index, "damagedQuantity", val || 0)
-                              }
-                              className="w-full"
-                              size="small"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-center text-sm font-medium text-gray-800">
-                            {netReceived}
-                          </td>
-                          <td className="px-3 py-2">
-                            <Input
-                              placeholder="Item remarks"
-                              value={item.remarks}
-                              onChange={(e) =>
-                                handleGRNItemChange(index, "remarks", e.target.value)
-                              }
-                              size="small"
-                            />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 mt-6 border-t border-gray-200">
-              <button
-                type="button"
-                onClick={() => {
-                  setGrnModalOpen(false)
-                  setGrnPO(null)
-                  setGrnItems([])
-                  grnForm.resetFields()
-                }}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={grnLoading}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-              >
-                {grnLoading ? "Saving GRN..." : existingGRN?.id ? "Update GRN" : "Save GRN"}
-              </button>
-            </div>
-          </Form>
-        )}
-      </Modal>
+        onMutated={handleGRNMutated}
+      />
     </ParentLayout>
   )
 }
 
 export { PurchaseOrders }
-

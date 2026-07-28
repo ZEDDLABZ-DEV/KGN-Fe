@@ -19,6 +19,7 @@ import { Inventory } from './pages/inventory';
 import { Procurement } from './pages/procurement';
 import { Settings } from './pages/settings';
 import { DailyReports } from './pages/daily-reports';
+import { Units } from './pages/units';
 import { Attendance } from './pages/attendance';
 import { PrivacyPolicy } from './pages/privacy-policy';
 import { AccountDeletion } from './pages/account-deletion';
@@ -54,6 +55,7 @@ function App() {
           <Route path="/purchase-orders" element={<PurchaseOrders />} />
           <Route path="/grn" element={<GRN />} />
           <Route path="/inventory" element={<Inventory />} />
+          <Route path="/units" element={<Units />} />
           <Route path="/procurement" element={<Procurement />} />
           <Route path="/settings" element={<Settings />} />
           {/* <Route path="/list" element={<TodoList />} /> */}

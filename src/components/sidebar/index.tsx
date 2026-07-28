@@ -14,7 +14,7 @@ import { MdOutlineRequestPage } from 'react-icons/md';
 import { HiOutlineFolderOpen } from 'react-icons/hi';
 import { LuClipboardList } from 'react-icons/lu';
 import { CgLogOut, CgUser } from 'react-icons/cg';
-import { TbDashboard } from 'react-icons/tb';
+import { TbDashboard, TbRulerMeasure } from 'react-icons/tb';
 // import { FaInstagram } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
@@ -51,6 +51,7 @@ const Sidebar = () => {
     { name: 'Purchase Orders', icon: <LuClipboardList size={20} />, path: '/purchase-orders', permission: 'view_projects' },
     { name: "GRN", icon: <HiOutlineDocumentText size={20} />, path: '/grn', permission: ['view_projects', 'view_purchase_orders'] },
     { name: 'Inventory', icon: <LuClipboardList size={20} />, path: '/inventory', permission: 'view_projects' },
+    { name: 'Units', icon: <TbRulerMeasure size={20} />, path: '/units', adminOnly: true },
     { name: 'Roles & Permissions', icon: <GiRobotLeg size={20} />, path: '/roles-permissions', permission: 'manage_roles' },
     { name: 'Settings', icon: <GrSettingsOption size={20} />, path: '/settings' },
     { name: 'Logout', icon: <CgLogOut size={20} />, onClick: logout, path: '/logout' },
