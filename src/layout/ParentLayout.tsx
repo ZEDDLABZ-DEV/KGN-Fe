@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { Header } from '../components/header';
+import { PageGuide } from '../components/page-guide';
 import { Sidebar } from '../components/sidebar';
 
 interface ParentLayoutProps {
@@ -52,6 +53,7 @@ const ParentLayout = ({ children, title = "Dashboard" }: ParentLayoutProps) => {
           {children}
         </main>
       </div>
+      <PageGuide />
     </div>
   );
 };

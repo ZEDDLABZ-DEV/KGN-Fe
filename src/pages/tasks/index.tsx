@@ -16,7 +16,7 @@ import type { UploadFile } from "antd"
 import { toast } from "react-hot-toast"
 import { ParentLayout } from "../../layout/ParentLayout"
 import { Request } from "../../utils/Request"
-import { isAdminRole, getProjectsEndpoint } from "../../utils/projects"
+import { isAdminRole, loadProjects } from "../../utils/projects"
 import { AuthContext } from "../../context/AuthContext"
 import moment from "moment"
 import {
@@ -163,7 +163,9 @@ const Tasks = () => {
   const handleCreateTask = async (values: any) => {
     try {
       if (!permissions.find((p: any) => p.name === "create_tasks")) return
-      if (!selectedProject) {
+      const projectId = values.projectId || selectedProject?.id
+      const project = projects.find((p) => p.id === projectId) || selectedProject
+      if (!projectId || !project) {
         toast.error("Please select a project first")
         return
       }
@@ -176,12 +178,13 @@ const Tasks = () => {
       await Request.post("/v1/api/tasks", {
         name: values.name,
         description: values.description ?? "",
-        projectId: selectedProject.id,
+        projectId,
         dueDate: values.dueDate?.toISOString(),
         priority: values.priority,
         assignedToIds,
       })
-      await getTasksByProject(selectedProject.id)
+      setSelectedProject(project)
+      await getTasksByProject(projectId)
       handleCloseCreateModal()
       toast.success("Task created successfully")
     } catch (error) {
@@ -193,13 +196,18 @@ const Tasks = () => {
   }
 
   const getProjects = async () => {
-    if (!user) return
+    if (!user) {
+      setProjects([])
+      setProjectsLoading(false)
+      return
+    }
     setProjectsLoading(true)
     try {
-      const response = await Request.get(getProjectsEndpoint(user))
-      setProjects(response.data || [])
+      const loaded = await loadProjects(user)
+      setProjects(loaded)
     } catch (error) {
       console.log(error)
+      setProjects([])
       toast.error("Failed to load projects")
     } finally {
       setProjectsLoading(false)
@@ -546,15 +554,23 @@ const Tasks = () => {
                 className="w-64"
                 size="large"
                 showSearch
+                optionFilterProp="label"
+                notFoundContent={projectsLoading ? "Loading projects..." : "No projects found"}
                 filterOption={(input, option) =>
                   (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
                 }
                 options={projects.map((p) => ({ label: p.name, value: p.id }))}
                 suffixIcon={<FiChevronDown className="text-gray-400" />}
               />
-              {selectedProject && canCreateTasks && (
+              {canCreateTasks && (
                 <button
-                  onClick={() => setCreateModalOpen(true)}
+                  onClick={() => {
+                    if (projects.length === 0 && user) {
+                      void getProjects()
+                    }
+                    form.setFieldsValue({ projectId: selectedProject?.id })
+                    setCreateModalOpen(true)
+                  }}
                   className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
                 >
                   <FiPlus size={18} />
@@ -1017,6 +1033,28 @@ const Tasks = () => {
       {/* Create Task Modal */}
       <Modal title="Create New Task" open={createModalOpen} onCancel={handleCloseCreateModal} footer={null} width={520}>
         <Form form={form} layout="vertical" onFinish={handleCreateTask} className="mt-4">
+          <Form.Item
+            label="Project"
+            name="projectId"
+            rules={[{ required: true, message: "Please select a project" }]}
+          >
+            <Select
+              placeholder="Select a project..."
+              loading={projectsLoading}
+              options={projects.map((p) => ({ label: p.name, value: p.id }))}
+              showSearch
+              optionFilterProp="label"
+              notFoundContent={projectsLoading ? "Loading projects..." : "No projects found"}
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+              onChange={(projectId: string) => {
+                const project = projects.find((p) => p.id === projectId)
+                if (project) void handleSelectProject(projectId)
+              }}
+            />
+          </Form.Item>
+
           <Form.Item label="Task Name" name="name" rules={[{ required: true, message: "Please enter task name" }]}>
             <Input placeholder="Enter task name" />
           </Form.Item>

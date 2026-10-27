@@ -1,0 +1,119 @@
+.page-guide-fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 999px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(31, 41, 55, 0.28);
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.page-guide-fab:hover {
+  background: #111827;
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px rgba(31, 41, 55, 0.34);
+}
+
+.page-guide-fab:focus-visible {
+  outline: 2px solid #d97706;
+  outline-offset: 3px;
+}
+
+.page-guide-fab__icon {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #d97706;
+}
+
+.page-guide-drawer .ant-drawer-header {
+  border-bottom: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
+.page-guide-drawer .ant-drawer-title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #1f2937;
+}
+
+.page-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.page-guide-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #d97706;
+}
+
+.page-guide-title {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.page-guide-subtitle {
+  margin: 2px 0 0;
+  font-family: "Noto Sans Devanagari", "Montserrat", sans-serif;
+  font-size: 15px;
+  color: #6b7280;
+}
+
+.page-guide-card {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+
+.page-guide-card h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.page-guide-card p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #1f2937;
+}
+
+.page-guide-card--hi p,
+.page-guide-card--hi li,
+.page-guide-subtitle {
+  font-family: "Noto Sans Devanagari", "Montserrat", sans-serif;
+}
+
+.page-guide-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.45;
+}
