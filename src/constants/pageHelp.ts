@@ -139,17 +139,17 @@ const PAGE_HELP: Record<string, PageHelpCopy> = {
   '/vendors': {
     titleEn: 'Vendors',
     titleHi: 'वेंडर',
-    en: 'Use this page to add vendors — the shops and suppliers from where you get cement, steel, and other materials.',
-    hi: 'इस पेज से वेंडर जोड़ें — वो दुकानें और सप्लायर जिनसे सीमेंट, स्टील और दूसरी सामग्री आती है।',
+    en: 'Use this page to add vendors — the shops and suppliers from where you get cement, steel, and other materials. New vendors wait for admin approval before they can be used on purchase orders.',
+    hi: 'इस पेज से वेंडर जोड़ें — वो दुकानें और सप्लायर जिनसे सीमेंट, स्टील और दूसरी सामग्री आती है। नया वेंडर खरीद ऑर्डर में तभी आएगा जब एडमिन उसे मंजूर करे।',
     featuresEn: [
       'Add a vendor with name and contact person',
       'Save phone, email, address, GST and PAN',
-      'Use these vendors later when making a purchase order',
+      'Admins approve or reject vendors; only active approved vendors appear when creating a PO',
     ],
     featuresHi: [
       'वेंडर का नाम और संपर्क व्यक्ति जोड़ें',
       'फोन, ईमेल, पता, GST और PAN सेव करें',
-      'बाद में खरीद ऑर्डर बनाते समय इन्हीं वेंडर का उपयोग करें',
+      'एडमिन वेंडर को मंजूर या नामंजूर करता है; PO पर सिर्फ एक्टिव मंजूर वेंडर दिखते हैं',
     ],
   },
   '/roles-permissions': {

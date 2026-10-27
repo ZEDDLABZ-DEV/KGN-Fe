@@ -10,6 +10,7 @@ import { Request } from "../../utils/Request"
 import { AuthContext } from "../../context/AuthContext"
 import { isAdmin, canManagePurchaseOrders, canManageGRN } from "../../utils/roles"
 import { getApiErrorMessage } from "../../utils/apiError"
+import { normalizeVendors } from "../../utils/vendors"
 import { PO_TRANSITIONS, getTransitions } from "../../utils/workflow"
 import { StatusActionButtons, type StatusActionOption } from "../../components/status-actions/StatusActionButtons"
 import { openSendToVendorWhatsApp } from "../../utils/purchaseOrderWhatsapp"
@@ -140,24 +141,6 @@ const formatDate = (date?: string) => (date ? moment(date).format("MMM DD, YYYY"
 const getPOTotal = (po: PurchaseOrder) =>
   po.items?.reduce((sum, item) => sum + item.quantity * (item.unitPrice || 0), 0) || 0
 
-const unwrapVendorList = (res: any): any[] => {
-  if (Array.isArray(res)) return res
-  if (Array.isArray(res?.data)) return res.data
-  if (Array.isArray(res?.vendors)) return res.vendors
-  if (Array.isArray(res?.data?.data)) return res.data.data
-  if (Array.isArray(res?.data?.vendors)) return res.data.vendors
-  return []
-}
-
-const normalizeVendors = (res: any): Vendor[] =>
-  unwrapVendorList(res)
-    .map((vendor) => ({
-      ...vendor,
-      id: String(vendor?.id ?? vendor?._id ?? ""),
-      name: vendor?.name ?? vendor?.vendorName ?? "",
-    }))
-    .filter((vendor) => vendor.id && vendor.name)
-
 const PurchaseOrders = () => {
   const { user } = useContext(AuthContext) as any
 
@@ -251,21 +234,11 @@ const PurchaseOrders = () => {
   const fetchActiveVendors = async () => {
     setVendorsLoading(true)
     try {
-      let loaded: Vendor[] = []
-      try {
-        const res: any = await Request.get("/v1/api/vendors/active")
-        loaded = normalizeVendors(res)
-      } catch {
-        // /vendors/active is not always implemented; fall back to the full list.
-      }
-      if (loaded.length === 0) {
-        const res: any = await Request.get("/v1/api/vendors")
-        loaded = normalizeVendors(res)
-      }
-      setVendors(loaded)
+      const res: any = await Request.get("/v1/api/vendors/active")
+      setVendors(normalizeVendors<Vendor>(res))
     } catch (err) {
       setVendors([])
-      toast.error(getApiErrorMessage(err, "Failed to load vendors"))
+      toast.error(getApiErrorMessage(err, "Failed to load active vendors"))
     } finally {
       setVendorsLoading(false)
     }
@@ -1120,7 +1093,11 @@ const PurchaseOrders = () => {
               loading={vendorsLoading}
               filterOption={(input, option) => (option?.label as string)?.toLowerCase().includes(input.toLowerCase())}
               options={vendors.map((v) => ({ label: v.name, value: v.id }))}
-              notFoundContent={vendorsLoading ? "Loading..." : "No vendors found"}
+              notFoundContent={
+                vendorsLoading
+                  ? "Loading..."
+                  : "No active approved vendors. Ask an admin to approve a vendor first."
+              }
             />
           </Form.Item>
 

@@ -7,11 +7,20 @@ import {
   Input,
   Skeleton,
   Empty,
+  Popconfirm,
+  Select,
 } from "antd"
 import { toast } from "react-hot-toast"
 import { ParentLayout } from "../../layout/ParentLayout"
 import { Request } from "../../utils/Request"
 import { AuthContext } from "../../context/AuthContext"
+import { isAdmin } from "../../utils/roles"
+import { getApiErrorMessage } from "../../utils/apiError"
+import {
+  normalizeVendors,
+  type VendorAccountStatus,
+  type VendorApprovalStatus,
+} from "../../utils/vendors"
 import {
   FiPlus,
   FiSearch,
@@ -24,6 +33,8 @@ import {
   FiMapPin,
   FiFileText,
   FiEye,
+  FiCheck,
+  FiX,
 } from "react-icons/fi"
 import { HiOutlineOfficeBuilding } from "react-icons/hi"
 
@@ -42,18 +53,40 @@ interface Vendor {
   panNumber?: string
   notes?: string
   createdAt?: string
+  approvalStatus?: string
+  status?: string
 }
+
+const APPROVAL_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  PENDING: { label: "Pending approval", color: "text-amber-700", bgColor: "bg-amber-50" },
+  APPROVED: { label: "Approved", color: "text-emerald-700", bgColor: "bg-emerald-50" },
+  REJECTED: { label: "Rejected", color: "text-red-700", bgColor: "bg-red-50" },
+}
+
+const ACCOUNT_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  ACTIVE: { label: "Active", color: "text-emerald-700", bgColor: "bg-emerald-50" },
+  INACTIVE: { label: "Inactive", color: "text-gray-600", bgColor: "bg-gray-100" },
+  BLOCKED: { label: "Blocked", color: "text-red-700", bgColor: "bg-red-50" },
+}
+
+const StatusPill = ({ label, color, bgColor }: { label: string; color: string; bgColor: string }) => (
+  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${bgColor} ${color}`}>
+    {label}
+  </span>
+)
 
 const Vendors = () => {
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [loading, setLoading] = useState(false)
-  const { permissions = [] } = useContext(AuthContext) as any
+  const { permissions = [], user } = useContext(AuthContext) as any
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [form] = Form.useForm()
+  const [updatingVendorId, setUpdatingVendorId] = useState<string | null>(null)
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("")
+  const [approvalFilter, setApprovalFilter] = useState<string>("")
 
   // Actions
   const [actionMenuVendor, setActionMenuVendor] = useState<string | null>(null)
@@ -89,7 +122,7 @@ const Vendors = () => {
       })
       await getVendors()
       handleCloseCreateModal()
-      toast.success("Vendor created successfully")
+      toast.success("Vendor added. An admin must approve it before it can be used on purchase orders.")
     } catch (error) {
       console.log(error)
       toast.error("Failed to create vendor")
@@ -102,12 +135,64 @@ const Vendors = () => {
     setLoading(true)
     try {
       const response = await Request.get("/v1/api/vendors")
-      setVendors(response.data || [])
+      setVendors(normalizeVendors<Vendor>(response))
     } catch (error) {
       console.log(error)
-      toast.error("Failed to load vendors")
+      toast.error(getApiErrorMessage(error, "Failed to load vendors"))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const applyVendorUpdate = (vendorId: string, patch: Partial<Vendor>) => {
+    setVendors((prev) => prev.map((vendor) => (vendor.id === vendorId ? { ...vendor, ...patch } : vendor)))
+    setViewingVendor((prev) => (prev?.id === vendorId ? { ...prev, ...patch } : prev))
+  }
+
+  const handleApprovalStatus = async (vendor: Vendor, approvalStatus: VendorApprovalStatus) => {
+    setUpdatingVendorId(vendor.id)
+    try {
+      const res: any = await Request.patch(`/v1/api/vendors/${vendor.id}/approval-status`, { approvalStatus })
+      const updated = res?.data || {}
+      applyVendorUpdate(vendor.id, {
+        approvalStatus: updated.approvalStatus || approvalStatus,
+        status: updated.status || vendor.status,
+      })
+
+      if (approvalStatus === "APPROVED") {
+        await handleAccountStatus(vendor.id, "ACTIVE", { silent: true })
+      }
+
+      toast.success(
+        approvalStatus === "APPROVED"
+          ? "Vendor approved and can now be used on purchase orders"
+          : approvalStatus === "REJECTED"
+            ? "Vendor rejected"
+            : "Vendor approval updated"
+      )
+      setActionMenuVendor(null)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Failed to update vendor approval"))
+    } finally {
+      setUpdatingVendorId(null)
+    }
+  }
+
+  const handleAccountStatus = async (
+    vendorId: string,
+    status: VendorAccountStatus,
+    options?: { silent?: boolean }
+  ) => {
+    setUpdatingVendorId(vendorId)
+    try {
+      const res: any = await Request.patch(`/v1/api/vendors/${vendorId}/status`, { status })
+      applyVendorUpdate(vendorId, { status: res?.data?.status || status })
+      if (!options?.silent) toast.success(`Vendor marked as ${status.toLowerCase()}`)
+      setActionMenuVendor(null)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Failed to update vendor status"))
+    } finally {
+      setUpdatingVendorId(null)
     }
   }
 
@@ -196,13 +281,21 @@ const Vendors = () => {
       vendor.contactPerson?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       vendor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       vendor.phone?.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesApproval =
+      !approvalFilter || String(vendor.approvalStatus || "PENDING").toUpperCase() === approvalFilter
 
-    return matchesSearch
+    return matchesSearch && matchesApproval
   })
+
+  const pendingCount = vendors.filter((v) => String(v.approvalStatus || "PENDING").toUpperCase() === "PENDING").length
+  const approvedCount = vendors.filter((v) => String(v.approvalStatus || "").toUpperCase() === "APPROVED").length
+  const rejectedCount = vendors.filter((v) => String(v.approvalStatus || "").toUpperCase() === "REJECTED").length
 
   const canCreateVendors = permissions.find((p: any) => p.name === "create_vendors") || permissions.find((p: any) => p.name === "view_users")
   const canEditVendors = permissions.find((p: any) => p.name === "edit_vendors") || permissions.find((p: any) => p.name === "view_users")
   const canDeleteVendors = permissions.find((p: any) => p.name === "delete_vendors") || permissions.find((p: any) => p.name === "view_users")
+  const canApproveVendors =
+    isAdmin(user) || permissions.some((p: any) => p.name === "manage_vendors")
 
   return (
     <ParentLayout title="Vendors">
@@ -216,7 +309,9 @@ const Vendors = () => {
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-gray-900">Vendors</h1>
-                <p className="text-sm text-gray-500">Manage your vendor database</p>
+                <p className="text-sm text-gray-500">
+                  Add suppliers here. Only an admin can approve a vendor before it appears on purchase orders.
+                </p>
               </div>
             </div>
 
@@ -233,7 +328,7 @@ const Vendors = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-50">
@@ -245,6 +340,30 @@ const Vendors = () => {
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setApprovalFilter(approvalFilter === "PENDING" ? "" : "PENDING")}
+            className={`rounded-xl border p-4 text-left shadow-sm ${approvalFilter === "PENDING" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-white"}`}
+          >
+            <p className="text-2xl font-bold text-amber-600">{pendingCount}</p>
+            <p className="text-xs text-gray-500">Pending approval</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setApprovalFilter(approvalFilter === "APPROVED" ? "" : "APPROVED")}
+            className={`rounded-xl border p-4 text-left shadow-sm ${approvalFilter === "APPROVED" ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}
+          >
+            <p className="text-2xl font-bold text-emerald-600">{approvedCount}</p>
+            <p className="text-xs text-gray-500">Approved</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setApprovalFilter(approvalFilter === "REJECTED" ? "" : "REJECTED")}
+            className={`rounded-xl border p-4 text-left shadow-sm ${approvalFilter === "REJECTED" ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"}`}
+          >
+            <p className="text-2xl font-bold text-red-600">{rejectedCount}</p>
+            <p className="text-xs text-gray-500">Rejected</p>
+          </button>
         </div>
 
         {/* Search */}
@@ -278,7 +397,7 @@ const Vendors = () => {
           <div className="rounded-xl border border-gray-200 bg-white py-16 shadow-sm">
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={searchTerm ? "No vendors match your search" : "No vendors yet"}
+              description={searchTerm || approvalFilter ? "No vendors match your filters" : "No vendors yet"}
             >
               {canCreateVendors && !searchTerm && (
                 <button
@@ -317,9 +436,17 @@ const Vendors = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-base font-semibold text-gray-900">
-                          {vendor.name}
-                        </h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-gray-900">
+                            {vendor.name}
+                          </h3>
+                          <StatusPill
+                            {...(APPROVAL_CONFIG[String(vendor.approvalStatus || "PENDING").toUpperCase()] || APPROVAL_CONFIG.PENDING)}
+                          />
+                          <StatusPill
+                            {...(ACCOUNT_CONFIG[String(vendor.status || "ACTIVE").toUpperCase()] || ACCOUNT_CONFIG.ACTIVE)}
+                          />
+                        </div>
                         {vendor.contactPerson && (
                           <p className="mt-1 text-sm text-gray-600">
                             <span className="font-medium">Contact:</span> {vendor.contactPerson}
@@ -405,6 +532,57 @@ const Vendors = () => {
 
                 {/* Vendor Footer */}
                 <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+                  {canApproveVendors && (
+                    <>
+                      {String(vendor.approvalStatus || "PENDING").toUpperCase() !== "APPROVED" && (
+                        <Popconfirm
+                          title="Approve vendor"
+                          description="This vendor will be usable on purchase orders after approval."
+                          okText="Approve"
+                          cancelText="Cancel"
+                          onConfirm={() => handleApprovalStatus(vendor, "APPROVED")}
+                        >
+                          <button
+                            disabled={updatingVendorId === vendor.id}
+                            className="flex items-center gap-2 rounded-lg border border-slate-900 bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            <FiCheck size={14} />
+                            {updatingVendorId === vendor.id ? "..." : "Approve"}
+                          </button>
+                        </Popconfirm>
+                      )}
+                      {String(vendor.approvalStatus || "PENDING").toUpperCase() !== "REJECTED" && (
+                        <Popconfirm
+                          title="Reject vendor"
+                          description="This vendor will not appear in purchase order dropdowns."
+                          okText="Reject"
+                          okButtonProps={{ danger: true }}
+                          cancelText="Cancel"
+                          onConfirm={() => handleApprovalStatus(vendor, "REJECTED")}
+                        >
+                          <button
+                            disabled={updatingVendorId === vendor.id}
+                            className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <FiX size={14} />
+                            Reject
+                          </button>
+                        </Popconfirm>
+                      )}
+                      <Select
+                        size="small"
+                        className="min-w-[120px]"
+                        value={String(vendor.status || "ACTIVE").toUpperCase()}
+                        disabled={updatingVendorId === vendor.id}
+                        onChange={(status: VendorAccountStatus) => handleAccountStatus(vendor.id, status)}
+                        options={[
+                          { label: "Active", value: "ACTIVE" },
+                          { label: "Inactive", value: "INACTIVE" },
+                          { label: "Blocked", value: "BLOCKED" },
+                        ]}
+                      />
+                    </>
+                  )}
                   <button
                     onClick={() => openViewModal(vendor)}
                     className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
@@ -616,12 +794,20 @@ const Vendors = () => {
         {viewingVendor && (
           <div className="mt-4 space-y-6">
             {/* Header Info */}
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">{viewingVendor.name}</h3>
                 {viewingVendor.contactPerson && (
                   <p className="text-sm text-gray-500 mt-1">Contact: {viewingVendor.contactPerson}</p>
                 )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <StatusPill
+                    {...(APPROVAL_CONFIG[String(viewingVendor.approvalStatus || "PENDING").toUpperCase()] || APPROVAL_CONFIG.PENDING)}
+                  />
+                  <StatusPill
+                    {...(ACCOUNT_CONFIG[String(viewingVendor.status || "ACTIVE").toUpperCase()] || ACCOUNT_CONFIG.ACTIVE)}
+                  />
+                </div>
               </div>
             </div>
 
@@ -696,7 +882,24 @@ const Vendors = () => {
             )}
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+            <div className="flex flex-wrap justify-end gap-3 pt-2 border-t border-gray-200">
+              {canApproveVendors && String(viewingVendor.approvalStatus || "PENDING").toUpperCase() !== "APPROVED" && (
+                <Popconfirm
+                  title="Approve vendor"
+                  description="This vendor will be usable on purchase orders after approval."
+                  okText="Approve"
+                  cancelText="Cancel"
+                  onConfirm={() => handleApprovalStatus(viewingVendor, "APPROVED")}
+                >
+                  <button
+                    disabled={updatingVendorId === viewingVendor.id}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <FiCheck size={16} />
+                    Approve
+                  </button>
+                </Popconfirm>
+              )}
               <button
                 onClick={() => {
                   setViewModalOpen(false)
