@@ -572,7 +572,7 @@ const Vendors = () => {
                       <Select
                         size="small"
                         className="min-w-[120px]"
-                        value={String(vendor.status || "ACTIVE").toUpperCase()}
+                        value={(String(vendor.status || "ACTIVE").toUpperCase() as VendorAccountStatus)}
                         disabled={updatingVendorId === vendor.id}
                         onChange={(status: VendorAccountStatus) => handleAccountStatus(vendor.id, status)}
                         options={[
